@@ -2,21 +2,27 @@
 
 [README in Japanese (日本語)](README-ja.md)
 
-Native SQLite3 agmsg integration for Qwen Code — send + inbox via `bun:sqlite`.
+Native SQLite3 agmsg integration for Qwen Code — send + inbox + hook via `bun:sqlite`.
 
 ## Why a plugin?
 
-Qwen Code v0.5.1 does not expose a plugin/hook API for system-prompt injection (unlike OpenCode's `experimental.chat.system.transform`). This plugin therefore operates as a **CLI helper** that Qwen Code invokes via shell commands, reading/writing the agmsg SQLite database directly.
+Qwen Code v0.5.1 does not expose a plugin/hook API for system-prompt injection (unlike OpenCode's `experimental.chat.system.transform`). However, Qwen Code **does** support [Command Hooks](https://qwenlm.github.io/qwen-code-docs/en/users/features/hooks/) — a clean IPC mechanism where a child process receives event JSON via stdin and returns control JSON via stdout.
+
+This plugin leverages the **Stop hook** event: after each Qwen Code turn completes, the hook fires, consumes the oldest unread agmsg message atomically, and injects it into Qwen's context via `additionalContext`. This enables fully autonomous multi-agent message loops — no manual polling needed.
 
 ## Architecture
 
 ```
-Qwen Code (CLI)
-  └── shell command: bun run index.ts <inbox|consume|send>
+Qwen Code (Stop hook)
+  └── bun run index.ts qwen-hook
         └── bun:sqlite → ~/.agents/skills/agmsg/db/messages.db
-              ├── inbox   → SELECT unread (read-only)
-              ├── consume → UPDATE ... RETURNING (atomic claim)
-              └── send    → INSERT
+              ├── consume  → UPDATE ... RETURNING (atomic claim)
+              └── (stdout) → JSON { ok, hookSpecificOutput.additionalContext }
+
+Qwen Code (manual CLI)
+  └── bun run index.ts <inbox|send>
+        ├── inbox  → SELECT unread (read-only)
+        └── send   → INSERT
 ```
 
 ## Operations
@@ -26,6 +32,7 @@ Qwen Code (CLI)
 | `inbox` | `SELECT` | List unread messages (does not mark read) |
 | `consume` | `UPDATE ... RETURNING` | Atomically claim and mark oldest unread as read |
 | `send` | `INSERT` | Send a message to another agent |
+| `qwen-hook` | `UPDATE ... RETURNING` | Stop hook: consume + output Qwen-format JSON |
 
 ## Prerequisites
 
@@ -52,10 +59,51 @@ bun run index.ts consume
 # Send a message
 bun run index.ts send <to_agent> "<message>"
 
+# Qwen Code Stop hook (outputs JSON with additionalContext)
+bun run index.ts qwen-hook
+
 # JSON output (for scripting)
 bun run index.ts inbox --json
 bun run index.ts consume --json
 ```
+
+## Qwen Code Hook Setup
+
+Wire the plugin into Qwen Code as a Stop hook by adding to `~/.qwen/settings.json`:
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "name": "agmsg-inbox-linker",
+      "description": "Inject agmsg messages into Qwen context after each turn",
+      "events": ["Stop"],
+      "command": "bun run /path/to/agmsg-qwencode-plugin/index.ts qwen-hook",
+      "timeout": 5000
+    }
+  ]
+}
+```
+
+When a message is waiting, the hook returns:
+
+```json
+{
+  "ok": true,
+  "hookSpecificOutput": {
+    "additionalContext": "【agmsgシステム通知: 他のエージェントからメッセージが届きました】\n[2024-01-01T00:00:00Z] gemini → qwen: Hello from gemini"
+  }
+}
+```
+
+When no messages are waiting, the hook returns:
+
+```json
+{ "ok": true }
+```
+
+The `additionalContext` value is appended to Qwen's conversation history seamlessly — Qwen processes it as if the user had typed additional input, and autonomously starts the next reasoning cycle.
 
 ## Configuration
 
@@ -65,20 +113,10 @@ bun run index.ts consume --json
 | `AGMSG_AGENT` | `qwen` | Agent name (must match the `to_agent` in agmsg messages) |
 | `AGMSG_DB_PATH` | `~/.agents/skills/agmsg/db/messages.db` | Path to the agmsg SQLite database |
 
-## Receiving messages between turns
-
-Qwen Code has no Monitor tool and no system-prompt injection hook. To receive messages automatically between turns, wire agmsg core's `check-inbox.sh` into `.qwen/settings.json` as a Stop hook (using `codex` type, since `qwen` is not yet in the allowlist):
-
-```bash
-~/.agents/skills/agmsg/scripts/delivery.sh set turn codex "$(pwd)"
-```
-
-This is the same mechanism used by Codex and Goose agents.
-
 ## Testing
 
 ```bash
-# Unit tests (20 tests)
+# Unit + CLI tests (26 tests)
 bun test
 
 # E2E test (6 checks)
@@ -92,10 +130,11 @@ bun x tsc --noEmit
 
 | Feature | OpenCode plugin | Qwen Code plugin |
 |---------|----------------|-----------------|
-| Runtime hook | `experimental.chat.system.transform` | None (CLI-based) |
-| Receive | In-process polling + hook injection | agmsg core `check-inbox.sh` via Stop hook |
+| Runtime hook | `experimental.chat.system.transform` | Command Hooks (Stop event) |
+| Receive | In-process polling + hook injection | `additionalContext` via Stop hook |
 | Send | Not implemented | `INSERT` via `bun:sqlite` |
 | DB access | `bun:sqlite` (in-process) | `bun:sqlite` (CLI subprocess) |
+| Bash dependency | None | None (pure Bun + JSON.stringify) |
 
 ## License
 

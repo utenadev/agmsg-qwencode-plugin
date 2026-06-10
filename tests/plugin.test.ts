@@ -6,6 +6,28 @@ import { mkdtempSync, rmSync } from "fs";
 import { listUnread, consumeNext, sendMessage } from "../index.ts";
 
 // ---------------------------------------------------------------------------
+// CLI helper
+// ---------------------------------------------------------------------------
+
+function cli(dbPath: string, args: string[]): { stdout: string; stderr: string; exitCode: number } {
+  const proc = Bun.spawnSync(["bun", "run", join(import.meta.dir, "..", "index.ts"), ...args], {
+    env: {
+      ...process.env,
+      AGMSG_DB_PATH: dbPath,
+      AGMSG_TEAM: TEAM,
+      AGMSG_AGENT: AGENT,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    stdout: new TextDecoder().decode(proc.stdout),
+    stderr: new TextDecoder().decode(proc.stderr),
+    exitCode: proc.exitCode,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -265,6 +287,87 @@ describe("round-trip: send → consume", () => {
     expect(m2!.body).toBe("Msg 2");
     expect(m3!.body).toBe("Msg 3");
     expect(m4).toBeNull();
+    rmSync(join(dbPath, ".."), { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// qwen-hook CLI — Qwen Code Command Hook JSON output
+// ---------------------------------------------------------------------------
+
+describe("qwen-hook CLI", () => {
+  it("outputs { ok: true } when no unread messages", () => {
+    const dbPath = freshDb();
+    const result = cli(dbPath, ["qwen-hook"]);
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.hookSpecificOutput).toBeUndefined();
+    rmSync(join(dbPath, ".."), { recursive: true, force: true });
+  });
+
+  it("outputs additionalContext JSON when unread message exists", () => {
+    const dbPath = freshDb();
+    seed(dbPath, { team: TEAM, from_agent: "gemini", to_agent: AGENT, body: "Hello from gemini" });
+    const result = cli(dbPath, ["qwen-hook"]);
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.hookSpecificOutput).toBeDefined();
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("agmsgシステム通知");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("gemini");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("Hello from gemini");
+    rmSync(join(dbPath, ".."), { recursive: true, force: true });
+  });
+
+  it("marks message as read after hook invocation", () => {
+    const dbPath = freshDb();
+    seed(dbPath, { team: TEAM, from_agent: "gemini", to_agent: AGENT, body: "Consume me" });
+    // First hook call consumes the message
+    cli(dbPath, ["qwen-hook"]);
+    // Second call should return empty
+    const result = cli(dbPath, ["qwen-hook"]);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.hookSpecificOutput).toBeUndefined();
+    expect(countRead(dbPath)).toBe(1);
+    expect(countUnread(dbPath)).toBe(0);
+    rmSync(join(dbPath, ".."), { recursive: true, force: true });
+  });
+
+  it("consumes oldest message first (FIFO)", () => {
+    const dbPath = freshDb();
+    seed(dbPath, { team: TEAM, from_agent: "a", to_agent: AGENT, body: "First", created_at: "2024-01-01T00:00:00Z" });
+    seed(dbPath, { team: TEAM, from_agent: "b", to_agent: AGENT, body: "Second" });
+    const result = cli(dbPath, ["qwen-hook"]);
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("First");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("a →");
+    rmSync(join(dbPath, ".."), { recursive: true, force: true });
+  });
+
+  it("handles messages with special characters (quotes, newlines)", () => {
+    const dbPath = freshDb();
+    seed(dbPath, { team: TEAM, from_agent: "gemini", to_agent: AGENT, body: 'He said "hello"\nand then left' });
+    const result = cli(dbPath, ["qwen-hook"]);
+    expect(result.exitCode).toBe(0);
+    // JSON.parse should succeed without errors — proves safe escaping
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.hookSpecificOutput.additionalContext).toContain('He said "hello"');
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("and then left");
+    rmSync(join(dbPath, ".."), { recursive: true, force: true });
+  });
+
+  it("handles ALL-targeted messages", () => {
+    const dbPath = freshDb();
+    seed(dbPath, { team: TEAM, from_agent: "coordinator", to_agent: "ALL", body: "Broadcast msg" });
+    const result = cli(dbPath, ["qwen-hook"]);
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("Broadcast msg");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("coordinator");
     rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 });

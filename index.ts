@@ -163,6 +163,7 @@ Usage:
   agmsg-qwencode inbox [--json]          List unread messages (does not mark read)
   agmsg-qwencode consume [--json]        Claim and display next unread message
   agmsg-qwencode send <to> <message>     Send a message to another agent
+  agmsg-qwencode qwen-hook               Qwen Code Stop hook (outputs JSON with additionalContext)
 
 Environment:
   AGMSG_DB_PATH   Path to messages.db (default: ~/.agents/skills/agmsg/db/messages.db)
@@ -224,6 +225,25 @@ function main(): void {
       }
       const result = sendMessage(cfg.dbPath, cfg.team, cfg.agent, toAgent, body);
       console.log(`Sent to ${result.to} in team ${result.team} (id=${result.id})`);
+      break;
+    }
+
+    case "qwen-hook": {
+      const msg = consumeNext(cfg.dbPath, cfg.team, cfg.agent);
+      if (!msg) {
+        console.log(JSON.stringify({ ok: true }));
+      } else {
+        const contextText =
+          `【agmsgシステム通知: 他のエージェントからメッセージが届きました】\n` +
+          `[${msg.created_at}] ${msg.from_agent} → ${msg.to_agent}: ${msg.body}`;
+        const response = {
+          ok: true,
+          hookSpecificOutput: {
+            additionalContext: contextText,
+          },
+        };
+        console.log(JSON.stringify(response));
+      }
       break;
     }
 
