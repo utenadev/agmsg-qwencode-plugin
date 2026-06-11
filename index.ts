@@ -19,10 +19,18 @@
  * a programmatic inbox read for scripts that need it.
  */
 
-import { Database } from "bun:sqlite";
 import os from "os";
 import path from "path";
 import fs from "fs";
+
+import {
+  openDb,
+  listMyUnread,
+  consumeMyNextMessage,
+  sendMessage as sendMessageDb,
+  NOTIFICATION,
+} from "agmsg-common-plugin";
+import type { AgmsgMessage, SendResult } from "agmsg-common-plugin";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -48,46 +56,20 @@ function loadConfig(): Config {
 }
 
 // ---------------------------------------------------------------------------
-// Database helpers
+// Inbox — read and consume unread messages (wrapper over common-plugin)
 // ---------------------------------------------------------------------------
-
-function openDb(dbPath: string): Database {
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
-  }
-  const db = new Database(dbPath);
-  db.run("PRAGMA journal_mode = WAL");
-  return db;
-}
-
-// ---------------------------------------------------------------------------
-// Inbox — read and consume unread messages
-// ---------------------------------------------------------------------------
-
-export interface AgmsgMessage {
-  id: number;
-  team: string;
-  from_agent: string;
-  to_agent: string;
-  body: string;
-  created_at: string;
-  read_at: string | null;
-}
 
 /**
  * Fetch all unread messages for the configured team+agent, oldest first.
  * Does NOT mark them as read — use consumeNext() for atomic claim.
  */
 export function listUnread(dbPath: string, team: string, agent: string): AgmsgMessage[] {
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
+  }
   const db = openDb(dbPath);
   try {
-    const rows = db.query(
-      `SELECT id, team, from_agent, to_agent, body, created_at, read_at
-       FROM messages
-       WHERE team = ? AND (to_agent = ? OR to_agent = 'ALL') AND read_at IS NULL
-       ORDER BY created_at ASC`
-    ).all(team, agent) as AgmsgMessage[];
-    return rows;
+    return listMyUnread(db, { dbPath, teamName: team, agentName: agent });
   } finally {
     db.close();
   }
@@ -99,54 +81,37 @@ export function listUnread(dbPath: string, team: string, agent: string): AgmsgMe
  * Returns null when no unread messages exist.
  */
 export function consumeNext(dbPath: string, team: string, agent: string): AgmsgMessage | null {
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
+  }
   const db = openDb(dbPath);
   try {
-    const msg = db.query(
-      `UPDATE messages
-       SET read_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-       WHERE id = (
-         SELECT id FROM messages
-         WHERE team = ? AND (to_agent = ? OR to_agent = 'ALL') AND read_at IS NULL
-         ORDER BY created_at ASC
-         LIMIT 1
-       )
-       RETURNING id, team, from_agent, to_agent, body, created_at, read_at`
-    ).get(team, agent) as AgmsgMessage | undefined;
-    return msg ?? null;
+    return consumeMyNextMessage(db, { dbPath, teamName: team, agentName: agent });
   } finally {
     db.close();
   }
 }
 
 // ---------------------------------------------------------------------------
-// Send — insert a new message
+// Send — insert a new message (wrapper over common-plugin)
 // ---------------------------------------------------------------------------
-
-export interface SendResult {
-  ok: boolean;
-  id: number;
-  to: string;
-  team: string;
-}
 
 /**
  * Send a message to another agent in the same team.
+ * from_agent is forced to the configured agent name (AGMSG_AGENT) — cannot be spoofed.
  */
 export function sendMessage(
   dbPath: string,
   team: string,
-  fromAgent: string,
   toAgent: string,
   body: string,
 ): SendResult {
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
+  }
   const db = openDb(dbPath);
   try {
-    const result = db.query(
-      `INSERT INTO messages (team, from_agent, to_agent, body)
-       VALUES (?, ?, ?, ?)
-       RETURNING id`
-    ).get(team, fromAgent, toAgent, body) as { id: number };
-    return { ok: true, id: result.id, to: toAgent, team };
+    return sendMessageDb(db, { dbPath, teamName: team, agentName: loadConfig().agent }, toAgent, body);
   } finally {
     db.close();
   }
@@ -172,10 +137,6 @@ Environment:
 `);
 }
 
-function formatMessage(msg: AgmsgMessage): string {
-  return `[${msg.created_at}] ${msg.from_agent} → ${msg.to_agent}: ${msg.body}`;
-}
-
 function main(): void {
   const args = process.argv.slice(2);
   if (args.length === 0) {
@@ -197,7 +158,7 @@ function main(): void {
       } else {
         console.log(`${msgs.length} unread message(s):`);
         for (const m of msgs) {
-          console.log(`  ${formatMessage(m)}`);
+          console.log(`  [${m.created_at}] ${m.from_agent} → ${m.to_agent}: ${m.body}`);
         }
       }
       break;
@@ -211,7 +172,7 @@ function main(): void {
       } else if (!msg) {
         console.log("No new messages.");
       } else {
-        console.log(formatMessage(msg));
+        console.log(`[${msg.created_at}] ${msg.from_agent} → ${msg.to_agent}: ${msg.body}`);
       }
       break;
     }
@@ -223,26 +184,27 @@ function main(): void {
         console.error("Usage: agmsg-qwencode send <to_agent> <message>");
         process.exit(1);
       }
-      const result = sendMessage(cfg.dbPath, cfg.team, cfg.agent, toAgent, body);
+      const result = sendMessage(cfg.dbPath, cfg.team, toAgent, body);
       console.log(`Sent to ${result.to} in team ${result.team} (id=${result.id})`);
       break;
     }
 
     case "qwen-hook": {
-      const msg = consumeNext(cfg.dbPath, cfg.team, cfg.agent);
-      if (!msg) {
+      const notifications: string[] = [];
+      while (true) {
+        const msg = consumeNext(cfg.dbPath, cfg.team, cfg.agent);
+        if (!msg) break;
+        notifications.push(NOTIFICATION(msg.from_agent, msg.body));
+      }
+      if (notifications.length === 0) {
         console.log(JSON.stringify({ ok: true }));
       } else {
-        const contextText =
-          `【agmsgシステム通知: 他のエージェントからメッセージが届きました】\n` +
-          `[${msg.created_at}] ${msg.from_agent} → ${msg.to_agent}: ${msg.body}`;
-        const response = {
+        console.log(JSON.stringify({
           ok: true,
           hookSpecificOutput: {
-            additionalContext: contextText,
+            additionalContext: notifications.join("\n\n---\n\n"),
           },
-        };
-        console.log(JSON.stringify(response));
+        }));
       }
       break;
     }

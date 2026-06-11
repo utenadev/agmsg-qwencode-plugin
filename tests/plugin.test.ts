@@ -3,7 +3,15 @@ import { Database } from "bun:sqlite";
 import { tmpdir } from "os";
 import { join } from "path";
 import { mkdtempSync, rmSync } from "fs";
-import { listUnread, consumeNext, sendMessage } from "../index.ts";
+import { listUnread, consumeNext, sendMessage } from "../index.js";
+
+// ---------------------------------------------------------------------------
+// Test configuration
+// ---------------------------------------------------------------------------
+
+const TEAM = "test-team";
+const AGENT = "qwen";
+process.env.AGMSG_AGENT = AGENT; // for sendMessage() which reads from env
 
 // ---------------------------------------------------------------------------
 // CLI helper
@@ -46,7 +54,7 @@ function freshDb(): string {
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
       read_at TEXT
     );
-    CREATE INDEX idx_unread ON messages(team, to_agent, read_at) WHERE read_at IS NULL;
+    CREATE INDEX idx_unread ON messages(team, to_agent, created_at) WHERE read_at IS NULL;
   `);
   db.close();
   return dbPath;
@@ -59,7 +67,7 @@ function seed(
   const db = new Database(dbPath);
   const cols = "team, from_agent, to_agent, body" + (row.created_at ? ", created_at" : "");
   const placeholders = "?, ?, ?, ?" + (row.created_at ? ", ?" : "");
-  const params: unknown[] = [row.team, row.from_agent, row.to_agent, row.body ?? "hello"];
+  const params: any[] = [row.team, row.from_agent, row.to_agent, row.body ?? "hello"];
   if (row.created_at) params.push(row.created_at);
   db.run(`INSERT INTO messages (${cols}) VALUES (${placeholders})`, ...params);
   db.close();
@@ -78,9 +86,6 @@ function countUnread(dbPath: string): number {
   db.close();
   return row.cnt;
 }
-
-const TEAM = "test-team";
-const AGENT = "qwen";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -188,7 +193,6 @@ describe("consumeNext()", () => {
   it("does not consume already-read messages", () => {
     const dbPath = freshDb();
     seed(dbPath, { team: TEAM, from_agent: "a", to_agent: AGENT, body: "Already read" });
-    // Mark as read via raw SQL
     const db = new Database(dbPath);
     db.run("UPDATE messages SET read_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')");
     db.close();
@@ -214,7 +218,7 @@ describe("consumeNext()", () => {
 describe("sendMessage()", () => {
   it("inserts a message and returns result", () => {
     const dbPath = freshDb();
-    const result = sendMessage(dbPath, TEAM, AGENT, "gemini", "Hello from qwen");
+    const result = sendMessage(dbPath, TEAM, "gemini", "Hello from qwen");
     expect(result.ok).toBe(true);
     expect(result.id).toBeGreaterThan(0);
     expect(result.to).toBe("gemini");
@@ -224,8 +228,7 @@ describe("sendMessage()", () => {
 
   it("inserted message is visible as unread on the recipient side", () => {
     const dbPath = freshDb();
-    sendMessage(dbPath, TEAM, AGENT, "gemini", "Test message");
-    // Read from gemini's perspective
+    sendMessage(dbPath, TEAM, "gemini", "Test message");
     const msgs = listUnread(dbPath, TEAM, "gemini");
     expect(msgs.length).toBe(1);
     expect(msgs[0].body).toBe("Test message");
@@ -236,9 +239,8 @@ describe("sendMessage()", () => {
 
   it("supports messages to ALL", () => {
     const dbPath = freshDb();
-    const result = sendMessage(dbPath, TEAM, AGENT, "ALL", "Broadcast from qwen");
+    const result = sendMessage(dbPath, TEAM, "ALL", "Broadcast from qwen");
     expect(result.ok).toBe(true);
-    // Both qwen and codex should see it
     const qwenMsgs = listUnread(dbPath, TEAM, "qwen");
     const codexMsgs = listUnread(dbPath, TEAM, "codex");
     expect(qwenMsgs.some((m) => m.body === "Broadcast from qwen")).toBe(true);
@@ -246,37 +248,42 @@ describe("sendMessage()", () => {
     rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
+  it("does not allow spoofing from_agent", () => {
+    const dbPath = freshDb();
+    // sendMessage no longer accepts fromAgent — from_agent is forced to AGMSG_AGENT
+    sendMessage(dbPath, TEAM, "gemini", "Forced sender");
+    const db = new Database(dbPath);
+    const rows = db.query("SELECT from_agent FROM messages").all() as { from_agent: string }[];
+    db.close();
+    expect(rows.length).toBe(1);
+    expect(rows[0].from_agent).toBe(AGENT);
+    rmSync(join(dbPath, ".."), { recursive: true, force: true });
+  });
+
   it("throws when database does not exist", () => {
-    expect(() => sendMessage("/nonexistent/db.sqlite", TEAM, AGENT, "gemini", "test")).toThrow(
+    expect(() => sendMessage("/nonexistent/db.sqlite", TEAM, "gemini", "test")).toThrow(
       "agmsg database not found",
     );
   });
 });
 
-// ---------------------------------------------------------------------------
-// Integration — full send→consume round-trip
-// ---------------------------------------------------------------------------
-
 describe("round-trip: send → consume", () => {
   it("agent A sends to agent B, agent B consumes", () => {
     const dbPath = freshDb();
-    // qwen sends to gemini
-    sendMessage(dbPath, TEAM, "qwen", "gemini", "Integration test");
-    // gemini consumes
+    sendMessage(dbPath, TEAM, "gemini", "Integration test");
     const msg = consumeNext(dbPath, TEAM, "gemini");
     expect(msg).not.toBeNull();
     expect(msg!.body).toBe("Integration test");
-    expect(msg!.from_agent).toBe("qwen");
-    // No more messages
+    expect(msg!.from_agent).toBe(AGENT);
     expect(consumeNext(dbPath, TEAM, "gemini")).toBeNull();
     rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
   it("FIFO order across multiple messages", () => {
     const dbPath = freshDb();
-    sendMessage(dbPath, TEAM, "qwen", "gemini", "Msg 1");
-    sendMessage(dbPath, TEAM, "codex", "gemini", "Msg 2");
-    sendMessage(dbPath, TEAM, "qwen", "gemini", "Msg 3");
+    sendMessage(dbPath, TEAM, "gemini", "Msg 1");
+    sendMessage(dbPath, TEAM, "gemini", "Msg 2");
+    sendMessage(dbPath, TEAM, "gemini", "Msg 3");
 
     const m1 = consumeNext(dbPath, TEAM, "gemini");
     const m2 = consumeNext(dbPath, TEAM, "gemini");
@@ -290,10 +297,6 @@ describe("round-trip: send → consume", () => {
     rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 });
-
-// ---------------------------------------------------------------------------
-// qwen-hook CLI — Qwen Code Command Hook JSON output
-// ---------------------------------------------------------------------------
 
 describe("qwen-hook CLI", () => {
   it("outputs { ok: true } when no unread messages", () => {
@@ -314,7 +317,7 @@ describe("qwen-hook CLI", () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.hookSpecificOutput).toBeDefined();
-    expect(parsed.hookSpecificOutput.additionalContext).toContain("agmsgシステム通知");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("[agmsg]");
     expect(parsed.hookSpecificOutput.additionalContext).toContain("gemini");
     expect(parsed.hookSpecificOutput.additionalContext).toContain("Hello from gemini");
     rmSync(join(dbPath, ".."), { recursive: true, force: true });
@@ -323,9 +326,7 @@ describe("qwen-hook CLI", () => {
   it("marks message as read after hook invocation", () => {
     const dbPath = freshDb();
     seed(dbPath, { team: TEAM, from_agent: "gemini", to_agent: AGENT, body: "Consume me" });
-    // First hook call consumes the message
     cli(dbPath, ["qwen-hook"]);
-    // Second call should return empty
     const result = cli(dbPath, ["qwen-hook"]);
     const parsed = JSON.parse(result.stdout);
     expect(parsed.ok).toBe(true);
@@ -342,8 +343,8 @@ describe("qwen-hook CLI", () => {
     const result = cli(dbPath, ["qwen-hook"]);
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout);
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("a");
     expect(parsed.hookSpecificOutput.additionalContext).toContain("First");
-    expect(parsed.hookSpecificOutput.additionalContext).toContain("a →");
     rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
@@ -352,7 +353,6 @@ describe("qwen-hook CLI", () => {
     seed(dbPath, { team: TEAM, from_agent: "gemini", to_agent: AGENT, body: 'He said "hello"\nand then left' });
     const result = cli(dbPath, ["qwen-hook"]);
     expect(result.exitCode).toBe(0);
-    // JSON.parse should succeed without errors — proves safe escaping
     const parsed = JSON.parse(result.stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.hookSpecificOutput.additionalContext).toContain('He said "hello"');
@@ -368,6 +368,20 @@ describe("qwen-hook CLI", () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.hookSpecificOutput.additionalContext).toContain("Broadcast msg");
     expect(parsed.hookSpecificOutput.additionalContext).toContain("coordinator");
+    rmSync(join(dbPath, ".."), { recursive: true, force: true });
+  });
+
+  it("bundles multiple unread messages into one notification", () => {
+    const dbPath = freshDb();
+    seed(dbPath, { team: TEAM, from_agent: "gemini", to_agent: AGENT, body: "First msg" });
+    seed(dbPath, { team: TEAM, from_agent: "codex", to_agent: AGENT, body: "Second msg" });
+    const result = cli(dbPath, ["qwen-hook"]);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("First msg");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("Second msg");
+    // Both should be consumed in one call
+    expect(countUnread(dbPath)).toBe(0);
+    expect(countRead(dbPath)).toBe(2);
     rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 });

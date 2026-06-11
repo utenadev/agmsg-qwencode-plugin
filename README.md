@@ -119,12 +119,14 @@ The `additionalContext` value is appended to Qwen's conversation history seamles
 # Unit + CLI tests (26 tests)
 bun test
 
-# E2E test (6 checks)
+# E2E test (7 checks)
 ./scripts/e2e.sh
 
 # Type check
 bun x tsc --noEmit
 ```
+
+> **Note:** This package depends on `agmsg-common-plugin` for shared database and messaging logic.
 
 ## Comparison with agmsg-opencode-plugin
 
@@ -132,9 +134,10 @@ bun x tsc --noEmit
 |---------|----------------|-----------------|
 | Runtime hook | `experimental.chat.system.transform` | Command Hooks (Stop event) |
 | Receive | In-process polling + hook injection | `additionalContext` via Stop hook |
-| Send | Not implemented | `INSERT` via `bun:sqlite` |
+| Send | `INSERT` via `bun:sqlite` (tool) | `INSERT` via `bun:sqlite` (CLI) |
 | DB access | `bun:sqlite` (in-process) | `bun:sqlite` (CLI subprocess) |
 | Bash dependency | None | None (pure Bun + JSON.stringify) |
+| Shared code | `agmsg-common-plugin` | `agmsg-common-plugin` |
 
 ## License
 

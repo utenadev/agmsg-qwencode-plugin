@@ -119,12 +119,14 @@ bun run index.ts consume --json
 # ユニットテスト＋CLI テスト（26 テスト）
 bun test
 
-# E2E テスト（6 チェック）
+# E2E テスト（7 チェック）
 ./scripts/e2e.sh
 
 # 型チェック
 bun x tsc --noEmit
 ```
+
+> **Note:** 本パッケージは `agmsg-common-plugin` に依存し、データベースとメッセージングロジックを共有しています。
 
 ## agmsg-opencode-plugin との比較
 
@@ -132,9 +134,10 @@ bun x tsc --noEmit
 |------|-------------------|---------------------|
 | ランタイムフック | `experimental.chat.system.transform` | Command Hooks（Stop イベント） |
 | 受信 | インポプロセスポーリング＋フック注入 | Stop フック経由 `additionalContext` |
-| 送信 | 未実装 | `INSERT` via `bun:sqlite` |
+| 送信 | `INSERT` via `bun:sqlite`（ツール） | `INSERT` via `bun:sqlite`（CLI） |
 | DB アクセス | `bun:sqlite`（インプロセス） | `bun:sqlite`（CLI サブプロセス） |
 | Bash 依存 | なし | なし（Bun + JSON.stringify のみ） |
+| 共有コード | `agmsg-common-plugin` | `agmsg-common-plugin` |
 
 ## ライセンス
 
