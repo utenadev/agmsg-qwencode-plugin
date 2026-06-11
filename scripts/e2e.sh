@@ -113,5 +113,60 @@ else
 fi
 
 echo ""
+echo "[test 5] qwen-hook — empty inbox returns { ok: true }"
+OUTPUT=$(cd "$ROOT_DIR" && AGMSG_TEAM="$TEAM" AGMSG_AGENT="$AGENT" AGMSG_DB_PATH="$DB_PATH" bun run index.ts qwen-hook)
+echo "$OUTPUT"
+PARSED_OK=$(echo "$OUTPUT" | jq -r '.ok' 2>/dev/null)
+PARSED_HOOK=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput' 2>/dev/null)
+if [ "$PARSED_OK" = "true" ] && [ "$PARSED_HOOK" = "null" ]; then
+  echo "[PASS] qwen-hook returns { ok: true } with no messages"
+  PASS=$((PASS + 1))
+else
+  echo "[FAIL] qwen-hook did not return expected empty JSON (ok=$PARSED_OK, hook=$PARSED_HOOK)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "[test 6] qwen-hook — unread message returns additionalContext JSON"
+# Seed a new unread message
+sqlite3 "$DB_PATH" \
+  "INSERT INTO messages (team, from_agent, to_agent, body) VALUES ('$TEAM', 'codex', '$AGENT', 'Hook test from codex')"
+OUTPUT=$(cd "$ROOT_DIR" && AGMSG_TEAM="$TEAM" AGMSG_AGENT="$AGENT" AGMSG_DB_PATH="$DB_PATH" bun run index.ts qwen-hook)
+echo "$OUTPUT"
+PARSED_OK=$(echo "$OUTPUT" | jq -r '.ok' 2>/dev/null)
+PARSED_CTX=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)
+if [ "$PARSED_OK" = "true" ] && [ "$PARSED_CTX" != "null" ] && echo "$PARSED_CTX" | grep -q 'Hook test from codex'; then
+  echo "[PASS] qwen-hook returns additionalContext with message"
+  PASS=$((PASS + 1))
+else
+  echo "[FAIL] qwen-hook did not return expected additionalContext (ok=$PARSED_OK, ctx=$PARSED_CTX)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify the message was consumed
+HOOK_READ_AT=$(sqlite3 "$DB_PATH" "SELECT read_at FROM messages WHERE body='Hook test from codex'")
+if [ -n "$HOOK_READ_AT" ]; then
+  echo "[PASS] Message consumed by qwen-hook (read_at=$HOOK_READ_AT)"
+  PASS=$((PASS + 1))
+else
+  echo "[FAIL] Message was NOT consumed by qwen-hook"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "[test 7] qwen-hook — second call returns empty (already consumed)"
+OUTPUT=$(cd "$ROOT_DIR" && AGMSG_TEAM="$TEAM" AGMSG_AGENT="$AGENT" AGMSG_DB_PATH="$DB_PATH" bun run index.ts qwen-hook)
+echo "$OUTPUT"
+PARSED_OK=$(echo "$OUTPUT" | jq -r '.ok' 2>/dev/null)
+PARSED_HOOK=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput' 2>/dev/null)
+if [ "$PARSED_OK" = "true" ] && [ "$PARSED_HOOK" = "null" ]; then
+  echo "[PASS] qwen-hook returns empty after consumption"
+  PASS=$((PASS + 1))
+else
+  echo "[FAIL] qwen-hook did not return empty after consumption (ok=$PARSED_OK, hook=$PARSED_HOOK)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1
