@@ -36,7 +36,10 @@ import type { AgmsgMessage, SendResult } from "agmsg-common-plugin";
 // Configuration
 // ---------------------------------------------------------------------------
 
-const DEFAULT_STORAGE_PATH = path.join(os.homedir(), ".agents", "skills", "agmsg");
+const DEFAULT_DB_PATH = path.join(
+  os.homedir(),
+  ".agents", "skills", "agmsg", "db", "messages.db",
+);
 
 interface Config {
   dbPath: string;
@@ -45,10 +48,8 @@ interface Config {
 }
 
 function loadConfig(): Config {
-  const storagePath = process.env.AGMSG_STORAGE_PATH;
-  const fromStorage = storagePath ? path.join(storagePath, "db", "messages.db") : undefined;
   return {
-    dbPath: fromStorage ?? process.env.AGMSG_DB_PATH ?? path.join(DEFAULT_STORAGE_PATH, "db", "messages.db"),
+    dbPath: process.env.AGMSG_DB_PATH ?? DEFAULT_DB_PATH,
     team: process.env.AGMSG_TEAM ?? "default_team",
     agent: process.env.AGMSG_AGENT ?? "qwen",
   };
@@ -130,8 +131,7 @@ Usage:
   agmsg-qwencode qwen-hook               Qwen Code Stop hook (outputs JSON with additionalContext)
 
 Environment:
-  AGMSG_STORAGE_PATH   Base dir for agmsg data (appends /db/messages.db)
-  AGMSG_DB_PATH        Direct path to messages.db (fallback if AGMSG_STORAGE_PATH unset)
+  AGMSG_DB_PATH   Path to messages.db (default: ~/.agents/skills/agmsg/db/messages.db)
   AGMSG_TEAM      Team name (default: default_team)
   AGMSG_AGENT     Agent name (default: qwen)
 `);

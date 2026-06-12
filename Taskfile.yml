@@ -17,6 +17,16 @@ tasks:
     cmds:
       - bun test
 
+  coverage:
+    desc: Run unit tests with coverage report
+    cmds:
+      - bun test --coverage
+
+  test:watch:
+    desc: Run unit tests in watch mode
+    cmds:
+      - bun test --watch
+
   test:e2e:
     desc: Run end-to-end integration test
     cmds:
@@ -26,6 +36,16 @@ tasks:
     desc: Run TypeScript type checking
     cmds:
       - bun x tsc --noEmit
+
+  semgrep:
+    desc: Run semgrep static analysis
+    cmds:
+      - uv run --with semgrep semgrep scan --config auto
+
+  gitleaks:
+    desc: Run gitleaks secret detection
+    cmds:
+      - gitleaks detect --no-git --verbose
 
   clean:
     desc: Remove node_modules and lockfile
