@@ -19,7 +19,7 @@
     "typecheck": "bun x tsc --noEmit"
   },
   "dependencies": {
-    "agmsg-common-plugin": "file:../agmsg-common-plugin"
+    "agmsg-common-plugin": "git+https://github.com/utenadev/agmsg-common-plugin.git#v1.0.0"
   },
   "devDependencies": {
     "bun-types": "^1.3.0",
