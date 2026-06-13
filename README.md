@@ -37,14 +37,15 @@ Qwen Code (manual CLI)
 ## Prerequisites
 
 - Bun runtime (for `bun:sqlite`)
-- `agmsg` with a SQLite database at the default path (or custom via `AGMSG_DB_PATH`)
+- `agmsg` with a SQLite database at the default path (or custom via `AGMSG_STORAGE_PATH`)
 
 ## Installation
 
+Copy `index.ts` + `common.ts` to any directory. No `bun install` required — `bun:sqlite` is built into Bun.
+
 ```bash
-git clone <repo-url>
-cd agmsg-qwencode-plugin
-bun install
+# Optional: symlink for convenience
+ln -s /path/to/agmsg-qwencode-plugin /your/workspace/agmsg-qwencode-plugin
 ```
 
 ## Usage
@@ -73,16 +74,19 @@ Wire the plugin into Qwen Code as a Stop hook by adding to `~/.qwen/settings.jso
 
 ```json
 {
-  "hooks": [
-    {
-      "type": "command",
-      "name": "agmsg-inbox-linker",
-      "description": "Inject agmsg messages into Qwen context after each turn",
-      "events": ["Stop"],
-      "command": "bun run /path/to/agmsg-qwencode-plugin/index.ts qwen-hook",
-      "timeout": 5000
-    }
-  ]
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run /path/to/agmsg-qwencode-plugin/index.ts qwen-hook"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
@@ -109,9 +113,10 @@ The `additionalContext` value is appended to Qwen's conversation history seamles
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `AGMSG_STORAGE_PATH` | `~/.agents/skills/agmsg` | Base directory for agmsg data (appends `/db/messages.db`) |
+| `AGMSG_DB_PATH` | ~/.agents/skills/agmsg/db/messages.db | Direct path to messages.db (fallback if AGMSG_STORAGE_PATH unset) |
 | `AGMSG_TEAM` | `default_team` | Team namespace for message routing |
 | `AGMSG_AGENT` | `qwen` | Agent name (must match the `to_agent` in agmsg messages) |
-| `AGMSG_DB_PATH` | `~/.agents/skills/agmsg/db/messages.db` | Path to the agmsg SQLite database |
 
 ## Testing
 
@@ -126,8 +131,6 @@ bun test
 bun x tsc --noEmit
 ```
 
-> **Note:** This package depends on `agmsg-common-plugin` for shared database and messaging logic.
-
 ## Comparison with agmsg-opencode-plugin
 
 | Feature | OpenCode plugin | Qwen Code plugin |
@@ -137,7 +140,7 @@ bun x tsc --noEmit
 | Send | `INSERT` via `bun:sqlite` (tool) | `INSERT` via `bun:sqlite` (CLI) |
 | DB access | `bun:sqlite` (in-process) | `bun:sqlite` (CLI subprocess) |
 | Bash dependency | None | None (pure Bun + JSON.stringify) |
-| Shared code | `agmsg-common-plugin` | `agmsg-common-plugin` |
+| Code structure | Self-contained (`index.ts` + `common.ts`) | Self-contained (`index.ts` + `common.ts`) |
 
 ## License
 

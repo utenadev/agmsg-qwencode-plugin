@@ -29,8 +29,8 @@ import {
   consumeMyNextMessage,
   sendMessage as sendMessageDb,
   NOTIFICATION,
-} from "agmsg-common-plugin";
-import type { AgmsgMessage, SendResult } from "agmsg-common-plugin";
+} from "./common.js";
+import type { AgmsgMessage, SendResult } from "./common.js";
 
 // ---------------------------------------------------------------------------
 // Configuration

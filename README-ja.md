@@ -73,16 +73,19 @@ bun run index.ts consume --json
 
 ```json
 {
-  "hooks": [
-    {
-      "type": "command",
-      "name": "agmsg-inbox-linker",
-      "description": "各ターン完了時に agmsg メッセージを Qwen の文脈へ注入する",
-      "events": ["Stop"],
-      "command": "bun run /path/to/agmsg-qwencode-plugin/index.ts qwen-hook",
-      "timeout": 5000
-    }
-  ]
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run /path/to/agmsg-qwencode-plugin/index.ts qwen-hook"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
@@ -126,7 +129,7 @@ bun test
 bun x tsc --noEmit
 ```
 
-> **Note:** 本パッケージは `agmsg-common-plugin` に依存し、データベースとメッセージングロジックを共有しています。
+> **Note:** 本パッケージはスタンドアロン構成で、`index.ts` + `common.ts` のみで動作します。
 
 ## agmsg-opencode-plugin との比較
 
@@ -137,7 +140,7 @@ bun x tsc --noEmit
 | 送信 | `INSERT` via `bun:sqlite`（ツール） | `INSERT` via `bun:sqlite`（CLI） |
 | DB アクセス | `bun:sqlite`（インプロセス） | `bun:sqlite`（CLI サブプロセス） |
 | Bash 依存 | なし | なし（Bun + JSON.stringify のみ） |
-| 共有コード | `agmsg-common-plugin` | `agmsg-common-plugin` |
+| 共有コード | `common.ts`（内蔵） | `common.ts`（内蔵） |
 
 ## ライセンス
 
