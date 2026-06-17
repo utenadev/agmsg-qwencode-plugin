@@ -60,6 +60,5 @@ export function sendMessage(db: Database, cfg: PluginConfig, toAgent: string, bo
   return { ok: true, id: result.id, to: toAgent, team: cfg.teamName };
 }
 
-export function NOTIFICATION(fromAgent: string, body: string): string {
-  return `[agmsg] Message from "${fromAgent}":\n---\n${body}\n---\nReply using the send tool if appropriate.`;
-}
+export const NOTIFICATION = (fromAgent: string, body: string): string =>
+  `[agmsg] Message from "${fromAgent}":\n---\n${body}\n---\nReply using the send tool if appropriate.`;

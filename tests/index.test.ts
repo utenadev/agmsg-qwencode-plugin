@@ -1,12 +1,20 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { tmpdir } from "os";
 import { join } from "path";
 import { mkdtempSync, rmSync } from "fs";
 import { openDb, listMyUnread, consumeMyNextMessage, sendMessage } from "../common.ts";
 
+const tmpDirs = new Set<string>();
+
+afterEach(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  tmpDirs.clear();
+});
+
 function freshDb(): string {
   const dir = mkdtempSync(join(tmpdir(), "agmsg-qwencode-plugin-test-"));
+  tmpDirs.add(dir);
   const dbPath = join(dir, "test.db");
   const db = new Database(dbPath);
   db.exec(`
@@ -58,7 +66,6 @@ describe("openDb", () => {
     const db = openDb(dbPath);
     expect(db).toBeDefined();
     db.close();
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 });
 
@@ -69,7 +76,6 @@ describe("listMyUnread", () => {
     const msgs = listMyUnread(db, { dbPath, teamName: "team", agentName: "agent" });
     expect(msgs).toEqual([]);
     db.close();
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
   it("returns unread messages for matching agent", () => {
@@ -81,7 +87,6 @@ describe("listMyUnread", () => {
     expect(msgs[0].body).toBe("Hello");
     expect(msgs[0].from_agent).toBe("a1");
     db.close();
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
   it("does not return messages for different team", () => {
@@ -91,7 +96,6 @@ describe("listMyUnread", () => {
     const msgs = listMyUnread(db, { dbPath, teamName: "team", agentName: "agent" });
     expect(msgs.length).toBe(0);
     db.close();
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
   it("does not return messages for different agent", () => {
@@ -101,7 +105,6 @@ describe("listMyUnread", () => {
     const msgs = listMyUnread(db, { dbPath, teamName: "team", agentName: "agent" });
     expect(msgs.length).toBe(0);
     db.close();
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
   it("returns ALL-targeted messages", () => {
@@ -112,7 +115,6 @@ describe("listMyUnread", () => {
     expect(msgs.length).toBe(1);
     expect(msgs[0].to_agent).toBe("ALL");
     db.close();
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 });
 
@@ -123,7 +125,6 @@ describe("consumeMyNextMessage", () => {
     const msg = consumeMyNextMessage(db, { dbPath, teamName: "team", agentName: "agent" });
     expect(msg).toBeNull();
     db.close();
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
   it("atomically claims and returns the oldest unread message", () => {
@@ -137,9 +138,8 @@ describe("consumeMyNextMessage", () => {
     expect(msg!.body).toBe("First");
     db.close();
 
-    expect(countUnread(dbPath)).toBe(1); // One message consumed
+    expect(countUnread(dbPath)).toBe(1);
     expect(countRead(dbPath)).toBe(1);
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
   it("marks message as read atomically", () => {
@@ -165,7 +165,6 @@ describe("sendMessage", () => {
     expect(result.id).toBeGreaterThan(0);
 
     db.close();
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 
   it("forces from_agent to configured agent name", () => {
@@ -180,6 +179,5 @@ describe("sendMessage", () => {
 
     expect(row.from_agent).toBe("real-sender");
     expect(row.to_agent).toBe("recipient");
-    rmSync(join(dbPath, ".."), { recursive: true, force: true });
   });
 });
