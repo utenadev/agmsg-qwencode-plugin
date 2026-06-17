@@ -1,7 +1,5 @@
 import { Database } from "bun:sqlite";
 
-/* ── types ── */
-
 export interface AgmsgMessage {
   id: number;
   team: string;
@@ -18,22 +16,20 @@ export interface PluginConfig {
   agentName: string;
 }
 
-interface SendResult {
+export interface SendResult {
   ok: boolean;
   id: number;
   to: string;
   team: string;
 }
 
-/* ── db ── */
-
-function openDb(dbPath: string): Database {
+export function openDb(dbPath: string): Database {
   const db = new Database(dbPath);
   db.run("PRAGMA journal_mode = WAL");
   return db;
 }
 
-function listMyUnread(db: Database, cfg: PluginConfig): AgmsgMessage[] {
+export function listMyUnread(db: Database, cfg: PluginConfig): AgmsgMessage[] {
   return db.query(
     `SELECT id, team, from_agent, to_agent, body, created_at, read_at
      FROM messages
@@ -42,7 +38,7 @@ function listMyUnread(db: Database, cfg: PluginConfig): AgmsgMessage[] {
   ).all(cfg.teamName, cfg.agentName) as AgmsgMessage[];
 }
 
-function consumeMyNextMessage(db: Database, cfg: PluginConfig): AgmsgMessage | null {
+export function consumeMyNextMessage(db: Database, cfg: PluginConfig): AgmsgMessage | null {
   const msg = db.query(
     `UPDATE messages SET read_at = datetime('now')
      WHERE id = (
@@ -55,7 +51,7 @@ function consumeMyNextMessage(db: Database, cfg: PluginConfig): AgmsgMessage | n
   return msg ?? null;
 }
 
-function sendMessage(db: Database, cfg: PluginConfig, toAgent: string, body: string): SendResult {
+export function sendMessage(db: Database, cfg: PluginConfig, toAgent: string, body: string): SendResult {
   const result = db.query(
     `INSERT INTO messages (team, from_agent, to_agent, body, created_at)
      VALUES (?, ?, ?, ?, datetime('now'))
@@ -64,18 +60,6 @@ function sendMessage(db: Database, cfg: PluginConfig, toAgent: string, body: str
   return { ok: true, id: result.id, to: toAgent, team: cfg.teamName };
 }
 
-/* ── prompts ── */
-
-const NOTIFICATION = (fromAgent: string, body: string): string =>
-  `[agmsg] Message from "${fromAgent}":\n---\n${body}\n---\nReply using the send tool if appropriate.`;
-
-/* ── exports ── */
-
-export {
-  openDb,
-  listMyUnread,
-  consumeMyNextMessage,
-  sendMessage,
-  NOTIFICATION,
-};
-export type { SendResult };
+export function NOTIFICATION(fromAgent: string, body: string): string {
+  return `[agmsg] Message from "${fromAgent}":\n---\n${body}\n---\nReply using the send tool if appropriate.`;
+}

@@ -96,7 +96,7 @@ When a message is waiting, the hook returns:
 {
   "ok": true,
   "hookSpecificOutput": {
-    "additionalContext": "【agmsgシステム通知: 他のエージェントからメッセージが届きました】\n[2024-01-01T00:00:00Z] gemini → qwen: Hello from gemini"
+    "additionalContext": "[agmsg] Message from \"gemini\":\\n---\\nHello from gemini\\n---\\nReply using the send tool if appropriate."
   }
 }
 ```
@@ -121,10 +121,10 @@ The `additionalContext` value is appended to Qwen's conversation history seamles
 ## Testing
 
 ```bash
-# Unit + CLI tests (26 tests)
+# Unit + CLI tests (46 tests)
 bun test
 
-# E2E test (7 checks)
+# E2E test (10 checks)
 ./scripts/e2e.sh
 
 # Type check

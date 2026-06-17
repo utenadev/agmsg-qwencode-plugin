@@ -3,8 +3,10 @@ node_modules/
 
 # Build output
 dist/
+
+# Runtime
 *.js
-*.d.ts
+*.map
 
 # Lock files
 bun.lock
@@ -23,6 +25,7 @@ coverage/
 .env.*.local
 
 # IDE
+.claude/
 .vscode/
 .idea/
 *.swp
@@ -33,7 +36,10 @@ coverage/
 Thumbs.db
 
 # Temp
+tmp/
 *.tmp
 *.log
-tmp/
-temp/
+
+# User config
+config.yaml
+

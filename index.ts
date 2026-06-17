@@ -1,24 +1,3 @@
-/**
- * agmsg-qwencode-plugin
- *
- * Native SQLite3 agmsg integration for Qwen Code.
- *
- * Qwen Code v0.5.1 does not expose a plugin/hook API for system-prompt
- * injection (unlike OpenCode's experimental.chat.system.transform).
- * This plugin therefore operates as a CLI helper that Qwen Code invokes
- * via shell commands, reading/writing the agmsg SQLite database directly
- * through bun:sqlite.
- *
- * Two operations:
- *   inbox  — SELECT unread messages, UPDATE read_at (atomic consume)
- *   send   — INSERT a new message
- *
- * Receiving messages between turns is handled by agmsg core's check-inbox.sh
- * wired into .qwen/settings.json Stop hook (codex type, since qwen is not
- * yet in the allowlist). This plugin covers the send side and provides
- * a programmatic inbox read for scripts that need it.
- */
-
 import os from "os";
 import path from "path";
 import fs from "fs";
@@ -31,10 +10,6 @@ import {
   NOTIFICATION,
 } from "./common.js";
 import type { AgmsgMessage, SendResult } from "./common.js";
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
 
 const DEFAULT_STORAGE_PATH = path.join(os.homedir(), ".agents", "skills", "agmsg");
 
@@ -54,14 +29,6 @@ function loadConfig(): Config {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Inbox — read and consume unread messages (wrapper over common-plugin)
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch all unread messages for the configured team+agent, oldest first.
- * Does NOT mark them as read — use consumeNext() for atomic claim.
- */
 export function listUnread(dbPath: string, team: string, agent: string): AgmsgMessage[] {
   if (!fs.existsSync(dbPath)) {
     throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
@@ -74,11 +41,6 @@ export function listUnread(dbPath: string, team: string, agent: string): AgmsgMe
   }
 }
 
-/**
- * Atomically claim and return the oldest unread message.
- * Uses UPDATE ... RETURNING for race-condition-free consumption.
- * Returns null when no unread messages exist.
- */
 export function consumeNext(dbPath: string, team: string, agent: string): AgmsgMessage | null {
   if (!fs.existsSync(dbPath)) {
     throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
@@ -91,14 +53,6 @@ export function consumeNext(dbPath: string, team: string, agent: string): AgmsgM
   }
 }
 
-// ---------------------------------------------------------------------------
-// Send — insert a new message (wrapper over common-plugin)
-// ---------------------------------------------------------------------------
-
-/**
- * Send a message to another agent in the same team.
- * from_agent is forced to the configured agent name (AGMSG_AGENT) — cannot be spoofed.
- */
 export function sendMessage(
   dbPath: string,
   team: string,
@@ -116,9 +70,23 @@ export function sendMessage(
   }
 }
 
-// ---------------------------------------------------------------------------
-// CLI entry point
-// ---------------------------------------------------------------------------
+export function runQwenHook(dbPath: string, team: string, agent: string): string {
+  const notifications: string[] = [];
+  while (true) {
+    const msg = consumeNext(dbPath, team, agent);
+    if (!msg) break;
+    notifications.push(NOTIFICATION(msg.from_agent, msg.body));
+  }
+  if (notifications.length === 0) {
+    return JSON.stringify({ ok: true });
+  }
+  return JSON.stringify({
+    ok: true,
+    hookSpecificOutput: {
+      additionalContext: notifications.join("\n\n---\n\n"),
+    },
+  });
+}
 
 function printUsage(): void {
   console.error(`agmsg-qwencode-plugin CLI
@@ -190,22 +158,7 @@ function main(): void {
     }
 
     case "qwen-hook": {
-      const notifications: string[] = [];
-      while (true) {
-        const msg = consumeNext(cfg.dbPath, cfg.team, cfg.agent);
-        if (!msg) break;
-        notifications.push(NOTIFICATION(msg.from_agent, msg.body));
-      }
-      if (notifications.length === 0) {
-        console.log(JSON.stringify({ ok: true }));
-      } else {
-        console.log(JSON.stringify({
-          ok: true,
-          hookSpecificOutput: {
-            additionalContext: notifications.join("\n\n---\n\n"),
-          },
-        }));
-      }
+      console.log(runQwenHook(cfg.dbPath, cfg.team, cfg.agent));
       break;
     }
 
@@ -216,7 +169,6 @@ function main(): void {
   }
 }
 
-// Run CLI when executed directly (not imported as module)
 if (import.meta.path === Bun.main) {
   main();
 }
