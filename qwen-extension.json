@@ -1,0 +1,12 @@
+{
+  "name": "agmsg-qwencode",
+  "version": "2.0.0",
+  "mcpServers": {
+    "agmsg": {
+      "command": "bun",
+      "args": ["run", "index.ts"],
+      "cwd": "${extensionPath}"
+    }
+  },
+  "contextFileName": "SKILL.md"
+}

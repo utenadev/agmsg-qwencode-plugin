@@ -1,174 +1,220 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
 import os from "os";
 import path from "path";
-import fs from "fs";
 
 import {
   openDb,
   listMyUnread,
   consumeMyNextMessage,
-  sendMessage as sendMessageDb,
+  sendMessage,
+  listTeams,
+  listMembers,
+  countMyUnread,
   NOTIFICATION,
+  resolveSettings,
+  isConfigured,
+  saveConfig,
+  ensureDb,
 } from "./common.js";
-import type { AgmsgMessage, SendResult } from "./common.js";
+import type { PluginConfig, Settings } from "./common.js";
 
 const DEFAULT_STORAGE_PATH = path.join(os.homedir(), ".agents", "skills", "agmsg");
 
-interface Config {
-  dbPath: string;
-  team: string;
-  agent: string;
-}
+export function createServer(storagePath?: string, teamName?: string, agentName?: string): McpServer {
+  const sp = storagePath ?? process.env.AGMSG_STORAGE_PATH ?? DEFAULT_STORAGE_PATH;
+  const settings = resolveSettings(sp);
+  const dbPath = path.join(sp, "db", "messages.db");
+  const team = teamName ?? settings.teamName;
+  const agent = agentName ?? settings.agentName;
 
-function loadConfig(): Config {
-  const storagePath = process.env.AGMSG_STORAGE_PATH;
-  const fromStorage = storagePath ? path.join(storagePath, "db", "messages.db") : undefined;
-  return {
-    dbPath: fromStorage ?? process.env.AGMSG_DB_PATH ?? path.join(DEFAULT_STORAGE_PATH, "db", "messages.db"),
-    team: process.env.AGMSG_TEAM ?? "default_team",
-    agent: process.env.AGMSG_AGENT ?? "qwen",
-  };
-}
-
-export function listUnread(dbPath: string, team: string, agent: string): AgmsgMessage[] {
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
-  }
-  const db = openDb(dbPath);
-  try {
-    return listMyUnread(db, { dbPath, teamName: team, agentName: agent });
-  } finally {
-    db.close();
-  }
-}
-
-export function consumeNext(dbPath: string, team: string, agent: string): AgmsgMessage | null {
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
-  }
-  const db = openDb(dbPath);
-  try {
-    return consumeMyNextMessage(db, { dbPath, teamName: team, agentName: agent });
-  } finally {
-    db.close();
-  }
-}
-
-export function sendMessage(
-  dbPath: string,
-  team: string,
-  toAgent: string,
-  body: string,
-): SendResult {
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`agmsg database not found at ${dbPath}. Run agmsg join first.`);
-  }
-  const db = openDb(dbPath);
-  try {
-    return sendMessageDb(db, { dbPath, teamName: team, agentName: loadConfig().agent }, toAgent, body);
-  } finally {
-    db.close();
-  }
-}
-
-export function runQwenHook(dbPath: string, team: string, agent: string): string {
-  const notifications: string[] = [];
-  while (true) {
-    const msg = consumeNext(dbPath, team, agent);
-    if (!msg) break;
-    notifications.push(NOTIFICATION(msg.from_agent, msg.body));
-  }
-  if (notifications.length === 0) {
-    return JSON.stringify({ ok: true });
-  }
-  return JSON.stringify({
-    ok: true,
-    hookSpecificOutput: {
-      additionalContext: notifications.join("\n\n---\n\n"),
-    },
+  const server = new McpServer({
+    name: "agmsg",
+    version: "2.0.0",
   });
+
+  const getCfg = (): PluginConfig => ({ dbPath, teamName: team, agentName: agent });
+
+  server.registerTool(
+    "agmsg_send",
+    {
+      description: "Send a message to another agent on the same agmsg team.",
+      inputSchema: {
+        to_agent: z.string().describe("Target agent name"),
+        body: z.string().describe("Message content"),
+      },
+    },
+    async ({ to_agent, body }) => {
+      const db = openDb(dbPath);
+      const result = sendMessage(db, getCfg(), to_agent, body);
+      db.close();
+      return { content: [{ type: "text" as const, text: `Message sent to ${result.to} (id=${result.id})` }] };
+    }
+  );
+
+  server.registerTool(
+    "agmsg_inbox",
+    {
+      description: "List unread messages addressed to you. Does not mark them as read.",
+      inputSchema: z.object({}).shape,
+    },
+    async () => {
+      const db = openDb(dbPath);
+      const msgs = listMyUnread(db, getCfg());
+      db.close();
+      if (msgs.length === 0) {
+        return { content: [{ type: "text" as const, text: "No unread messages." }] };
+      }
+      const lines = msgs.map(m => `[#${m.id}] ${m.created_at} from ${m.from_agent}: ${m.body}`);
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }
+  );
+
+  server.registerTool(
+    "agmsg_consume",
+    {
+      description: "Consume the oldest unread message (marks as read). Returns the message content.",
+      inputSchema: z.object({}).shape,
+    },
+    async () => {
+      const db = openDb(dbPath);
+      const msg = consumeMyNextMessage(db, getCfg());
+      db.close();
+      if (!msg) {
+        return { content: [{ type: "text" as const, text: "No unread messages." }] };
+      }
+      return { content: [{ type: "text" as const, text: NOTIFICATION(msg.from_agent, msg.body) }] };
+    }
+  );
+
+  server.registerTool(
+    "agmsg_count",
+    {
+      description: "Count unread messages addressed to you.",
+      inputSchema: z.object({}).shape,
+    },
+    async () => {
+      const db = openDb(dbPath);
+      const n = countMyUnread(db, getCfg());
+      db.close();
+      return { content: [{ type: "text" as const, text: String(n) }] };
+    }
+  );
+
+  server.registerTool(
+    "agmsg_teams",
+    {
+      description: "List all teams that have messages in the database.",
+      inputSchema: z.object({}).shape,
+    },
+    async () => {
+      const db = openDb(dbPath);
+      const teams = listTeams(db);
+      db.close();
+      if (teams.length === 0) {
+        return { content: [{ type: "text" as const, text: "No teams found." }] };
+      }
+      return { content: [{ type: "text" as const, text: teams.join("\n") }] };
+    }
+  );
+
+  server.registerTool(
+    "agmsg_members",
+    {
+      description: "List all agents in the current team.",
+      inputSchema: z.object({}).shape,
+    },
+    async () => {
+      const db = openDb(dbPath);
+      const members = listMembers(db, getCfg().teamName);
+      db.close();
+      if (members.length === 0) {
+        return { content: [{ type: "text" as const, text: "No members found." }] };
+      }
+      return { content: [{ type: "text" as const, text: members.join("\n") }] };
+    }
+  );
+
+  server.registerTool(
+    "agmsg_setup",
+    {
+      description: "Setup wizard for agmsg. Check configuration status or initialize a new configuration.",
+      inputSchema: {
+        team_name: z.string().optional().describe("Team name to configure (only when setting up)"),
+        agent_name: z.string().optional().describe("Agent name to configure (only when setting up)"),
+      },
+    },
+    async ({ team_name, agent_name }) => {
+      if (isConfigured(sp)) {
+        const s = resolveSettings(sp);
+        return { content: [{ type: "text" as const, text: `Already configured. team=${s.teamName} agent=${s.agentName}` }] };
+      }
+      if (!team_name || !agent_name) {
+        return { content: [{ type: "text" as const, text: "Not configured. Please provide team_name and agent_name to set up." }] };
+      }
+      saveConfig(sp, { teamName: team_name, agentName: agent_name });
+      ensureDb(dbPath);
+      return { content: [{ type: "text" as const, text: `Configuration saved. team=${team_name} agent=${agent_name}` }] };
+    }
+  );
+
+  return server;
 }
 
-function printUsage(): void {
-  console.error(`agmsg-qwencode-plugin CLI
-
-Usage:
-  agmsg-qwencode inbox [--json]          List unread messages (does not mark read)
-  agmsg-qwencode consume [--json]        Claim and display next unread message
-  agmsg-qwencode send <to> <message>     Send a message to another agent
-  agmsg-qwencode qwen-hook               Qwen Code Stop hook (outputs JSON with additionalContext)
-
-Environment:
-  AGMSG_STORAGE_PATH   Base dir for agmsg data (appends /db/messages.db)
-  AGMSG_DB_PATH        Direct path to messages.db (fallback if AGMSG_STORAGE_PATH unset)
-  AGMSG_TEAM      Team name (default: default_team)
-  AGMSG_AGENT     Agent name (default: qwen)
-`);
+async function main(): Promise<void> {
+  const sp = process.env.AGMSG_STORAGE_PATH ?? DEFAULT_STORAGE_PATH;
+  const settings = resolveSettings(sp);
+  const server = createServer(sp, settings.teamName, settings.agentName);
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
 }
 
-function main(): void {
-  const args = process.argv.slice(2);
-  if (args.length === 0) {
-    printUsage();
-    process.exit(1);
+async function monitor(): Promise<void> {
+  const sp = process.env.AGMSG_STORAGE_PATH ?? DEFAULT_STORAGE_PATH;
+  const settings = resolveSettings(sp);
+  const dbPath = path.join(sp, "db", "messages.db");
+  const cfg: PluginConfig = { dbPath, teamName: settings.teamName, agentName: settings.agentName };
+  const interval = settings.watchInterval;
+
+  console.log(`[agmsg monitor] team=${cfg.teamName} agent=${cfg.agentName} interval=${interval}ms`);
+
+  let pending = false;
+  // Signal file for Stop Hook integration
+  const signalPath = path.join(sp, ".pending");
+
+  while (true) {
+    const db = openDb(dbPath);
+    const n = countMyUnread(db, cfg);
+    db.close();
+
+    if (n > 0 && !pending) {
+      pending = true;
+      // Write signal file so external hooks can detect pending messages
+      try { Bun.write(signalPath, String(n)); } catch {}
+      const db2 = openDb(dbPath);
+      const msgs = listMyUnread(db2, cfg);
+      db2.close();
+      for (const msg of msgs) {
+        console.log(NOTIFICATION(msg.from_agent, msg.body));
+      }
+    } else if (n === 0 && pending) {
+      pending = false;
+      try { Bun.write(signalPath, "0"); } catch {}
+    }
+
+    await new Promise(r => setTimeout(r, interval));
   }
-
-  const cmd = args[0];
-  const cfg = loadConfig();
-
-  switch (cmd) {
-    case "inbox": {
-      const json = args.includes("--json");
-      const msgs = listUnread(cfg.dbPath, cfg.team, cfg.agent);
-      if (json) {
-        console.log(JSON.stringify(msgs, null, 2));
-      } else if (msgs.length === 0) {
-        console.log("No new messages.");
-      } else {
-        console.log(`${msgs.length} unread message(s):`);
-        for (const m of msgs) {
-          console.log(`  [${m.created_at}] ${m.from_agent} → ${m.to_agent}: ${m.body}`);
-        }
-      }
-      break;
-    }
-
-    case "consume": {
-      const json = args.includes("--json");
-      const msg = consumeNext(cfg.dbPath, cfg.team, cfg.agent);
-      if (json) {
-        console.log(JSON.stringify(msg, null, 2));
-      } else if (!msg) {
-        console.log("No new messages.");
-      } else {
-        console.log(`[${msg.created_at}] ${msg.from_agent} → ${msg.to_agent}: ${msg.body}`);
-      }
-      break;
-    }
-
-    case "send": {
-      const toAgent = args[1];
-      const body = args.slice(2).join(" ");
-      if (!toAgent || !body) {
-        console.error("Usage: agmsg-qwencode send <to_agent> <message>");
-        process.exit(1);
-      }
-      const result = sendMessage(cfg.dbPath, cfg.team, toAgent, body);
-      console.log(`Sent to ${result.to} in team ${result.team} (id=${result.id})`);
-      break;
-    }
-
-    case "qwen-hook": {
-      console.log(runQwenHook(cfg.dbPath, cfg.team, cfg.agent));
-      break;
-    }
-
-    default:
-      console.error(`Unknown command: ${cmd}`);
-      printUsage();
-      process.exit(1);
-  }
 }
 
-if (import.meta.path === Bun.main) {
-  main();
+// Only run when executed directly (not imported)
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] === __filename) {
+  const cmd = process.argv[2];
+  if (cmd === "monitor") {
+    monitor();
+  } else {
+    main();
+  }
 }

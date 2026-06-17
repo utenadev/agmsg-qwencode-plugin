@@ -1,14 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "noEmit": true
+    "outDir": "dist",
+    "rootDir": ".",
+    "declaration": true
   },
-  "include": ["*.ts", "tests/*.ts"]
+  "include": ["*.ts", "tests/**/*.ts"]
 }

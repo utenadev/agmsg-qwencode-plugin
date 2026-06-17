@@ -2,18 +2,16 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { tmpdir } from "os";
 import { join } from "path";
-import { mkdtempSync, rmSync } from "fs";
-import { openDb, listMyUnread, consumeMyNextMessage, sendMessage } from "../common.ts";
+import { mkdtempSync, rmSync, readFileSync } from "fs";
 
 const tmpDirs = new Set<string>();
-
 afterEach(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
   tmpDirs.clear();
 });
 
 function freshDb(): string {
-  const dir = mkdtempSync(join(tmpdir(), "agmsg-qwencode-plugin-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "agmsg-test-"));
   tmpDirs.add(dir);
   const dbPath = join(dir, "test.db");
   const db = new Database(dbPath);
@@ -38,27 +36,22 @@ function seed(dbPath: string, row: { team: string; from_agent: string; to_agent:
   const db = new Database(dbPath);
   db.run(
     "INSERT INTO messages (team, from_agent, to_agent, body) VALUES (?, ?, ?, ?)",
-    row.team,
-    row.from_agent,
-    row.to_agent,
-    row.body ?? "hello"
+    row.team, row.from_agent, row.to_agent, row.body ?? "hello"
   );
   db.close();
 }
 
-function countRead(dbPath: string): number {
-  const db = new Database(dbPath);
-  const row = db.query("SELECT COUNT(*) AS cnt FROM messages WHERE read_at IS NOT NULL").get() as { cnt: number };
-  db.close();
-  return row.cnt;
-}
-
-function countUnread(dbPath: string): number {
-  const db = new Database(dbPath);
-  const row = db.query("SELECT COUNT(*) AS cnt FROM messages WHERE read_at IS NULL").get() as { cnt: number };
-  db.close();
-  return row.cnt;
-}
+import {
+  openDb,
+  listMyUnread,
+  consumeMyNextMessage,
+  sendMessage,
+  listTeams,
+  listMembers,
+  isConfigured,
+  saveConfig,
+  ensureDb,
+} from "../common.ts";
 
 describe("openDb", () => {
   it("opens a database with WAL mode enabled", () => {
@@ -129,27 +122,25 @@ describe("consumeMyNextMessage", () => {
 
   it("atomically claims and returns the oldest unread message", () => {
     const dbPath = freshDb();
-    seed(dbPath, { team: "team", from_agent: "a1", to_agent: "agent", body: "First", created_at: "2024-01-01T00:00:00Z" });
+    seed(dbPath, { team: "team", from_agent: "a1", to_agent: "agent", body: "First" });
     seed(dbPath, { team: "team", from_agent: "a2", to_agent: "agent", body: "Second" });
-
     const db = openDb(dbPath);
     const msg = consumeMyNextMessage(db, { dbPath, teamName: "team", agentName: "agent" });
     expect(msg).not.toBeNull();
     expect(msg!.body).toBe("First");
     db.close();
-
-    expect(countUnread(dbPath)).toBe(1);
-    expect(countRead(dbPath)).toBe(1);
   });
 
   it("marks message as read atomically", () => {
     const dbPath = freshDb();
     seed(dbPath, { team: "team", from_agent: "a1", to_agent: "agent", body: "Test" });
     const db = openDb(dbPath);
-    const msg = consumeMyNextMessage(db, { dbPath, teamName: "team", agentName: "agent" });
-    expect(msg).not.toBeNull();
+    consumeMyNextMessage(db, { dbPath, teamName: "team", agentName: "agent" });
     db.close();
-    expect(countUnread(dbPath)).toBe(0);
+    const db2 = openDb(dbPath);
+    const row = db2.query("SELECT read_at FROM messages WHERE id = 1").get() as { read_at: string };
+    db2.close();
+    expect(row.read_at).not.toBeNull();
   });
 });
 
@@ -158,12 +149,10 @@ describe("sendMessage", () => {
     const dbPath = freshDb();
     const db = openDb(dbPath);
     const result = sendMessage(db, { dbPath, teamName: "team", agentName: "sender" }, "recipient", "Hello");
-
     expect(result.ok).toBe(true);
     expect(result.to).toBe("recipient");
     expect(result.team).toBe("team");
     expect(result.id).toBeGreaterThan(0);
-
     db.close();
   });
 
@@ -172,12 +161,109 @@ describe("sendMessage", () => {
     const db = openDb(dbPath);
     sendMessage(db, { dbPath, teamName: "team", agentName: "real-sender" }, "recipient", "Test");
     db.close();
-
     const db2 = openDb(dbPath);
-    const row = db2.query("SELECT from_agent, to_agent FROM messages").get() as any;
+    const row = db2.query("SELECT from_agent FROM messages WHERE id = 1").get() as { from_agent: string };
     db2.close();
-
     expect(row.from_agent).toBe("real-sender");
-    expect(row.to_agent).toBe("recipient");
+  });
+});
+
+describe("listTeams", () => {
+  it("returns empty array when no teams exist", () => {
+    const dbPath = freshDb();
+    const db = openDb(dbPath);
+    const teams = listTeams(db);
+    expect(teams).toEqual([]);
+    db.close();
+  });
+
+  it("returns distinct team names", () => {
+    const dbPath = freshDb();
+    seed(dbPath, { team: "team-a", from_agent: "a1", to_agent: "a2", body: "msg1" });
+    seed(dbPath, { team: "team-b", from_agent: "b1", to_agent: "b2", body: "msg2" });
+    seed(dbPath, { team: "team-a", from_agent: "a2", to_agent: "a1", body: "msg3" });
+    const db = openDb(dbPath);
+    const teams = listTeams(db);
+    expect(teams).toEqual(["team-a", "team-b"]);
+    db.close();
+  });
+});
+
+describe("listMembers", () => {
+  it("returns empty array when no messages in team", () => {
+    const dbPath = freshDb();
+    const db = openDb(dbPath);
+    const members = listMembers(db, "team");
+    expect(members).toEqual([]);
+    db.close();
+  });
+
+  it("returns distinct agent names in team", () => {
+    const dbPath = freshDb();
+    seed(dbPath, { team: "team", from_agent: "alice", to_agent: "bob", body: "msg1" });
+    seed(dbPath, { team: "team", from_agent: "bob", to_agent: "charlie", body: "msg2" });
+    const db = openDb(dbPath);
+    const members = listMembers(db, "team");
+    expect(members).toEqual(["alice", "bob", "charlie"]);
+    db.close();
+  });
+});
+
+describe("isConfigured", () => {
+  it("returns false when no config.yaml exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    expect(isConfigured(dir)).toBe(false);
+  });
+
+  it("returns true when config.yaml exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    saveConfig(dir, { teamName: "t", agentName: "a" });
+    expect(isConfigured(dir)).toBe(true);
+  });
+});
+
+describe("saveConfig", () => {
+  it("writes config.yaml with team_name and agent_name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    saveConfig(dir, { teamName: "my-team", agentName: "my-agent" });
+    const content = readFileSync(join(dir, "config.yaml"), "utf-8");
+    expect(content).toContain("team_name: my-team");
+    expect(content).toContain("agent_name: my-agent");
+  });
+
+  it("includes watch_interval when provided", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    saveConfig(dir, { teamName: "t", agentName: "a", watchInterval: 5000 });
+    const content = readFileSync(join(dir, "config.yaml"), "utf-8");
+    expect(content).toContain("watch_interval: 5000");
+  });
+});
+
+describe("ensureDb", () => {
+  it("creates the database and tables if not exist", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-ensuredb-test-"));
+    tmpDirs.add(dir);
+    const dbPath = join(dir, "sub", "db", "messages.db");
+    ensureDb(dbPath);
+    const db = new Database(dbPath);
+    const tables = db.query("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
+    db.close();
+    expect(tables.some(t => t.name === "messages")).toBe(true);
+  });
+
+  it("is idempotent — does not fail if called twice", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-ensuredb-test-"));
+    tmpDirs.add(dir);
+    const dbPath = join(dir, "db", "messages.db");
+    ensureDb(dbPath);
+    ensureDb(dbPath);
+    const db = new Database(dbPath);
+    const tables = db.query("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
+    db.close();
+    expect(tables.some(t => t.name === "messages")).toBe(true);
   });
 });

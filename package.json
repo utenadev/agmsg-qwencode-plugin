@@ -1,17 +1,20 @@
 {
   "name": "agmsg-qwencode-plugin",
-  "version": "1.0.0",
-  "description": "Native SQLite3 agmsg integration for Qwen Code via Command Hooks",
-  "main": "index.ts",
+  "version": "2.0.0",
+  "description": "agmsg MCP server for Qwen Code — agent-to-agent messaging over SQLite",
   "type": "module",
+  "main": "dist/index.js",
   "scripts": {
+    "build": "tsc",
     "test": "bun test",
-    "e2e": "bash scripts/e2e.sh",
-    "typecheck": "bun x tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "monitor": "bun run index.ts monitor"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
-    "bun-types": "^1.0.0"
-  },
-  "keywords": ["qwen-code", "agmsg", "sqlite", "messaging", "multi-agent"],
-  "license": "MIT"
+    "typescript": "^5.3.0",
+    "bun-types": "^1.3.0"
+  }
 }
