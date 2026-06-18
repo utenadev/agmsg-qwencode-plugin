@@ -179,10 +179,7 @@ export function saveConfig(storagePath: string, cfg: { teamName: string; agentNa
 }
 
 export function ensureDb(dbPath: string): void {
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
   db.exec(`
     PRAGMA journal_mode=WAL;
