@@ -168,8 +168,8 @@ export function saveConfig(storagePath: string, cfg: { teamName: string; agentNa
   const cp = configPath(storagePath);
   const lines = [
     `# agmsg configuration`,
-    `team_name: ${cfg.teamName}`,
-    `agent_name: ${cfg.agentName}`,
+    `team_name: "${cfg.teamName}"`,
+    `agent_name: "${cfg.agentName}"`,
   ];
   if (cfg.watchInterval !== undefined) {
     lines.push(`watch_interval: ${cfg.watchInterval}`);

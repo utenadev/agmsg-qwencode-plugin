@@ -229,8 +229,8 @@ describe("saveConfig", () => {
     tmpDirs.add(dir);
     saveConfig(dir, { teamName: "my-team", agentName: "my-agent" });
     const content = readFileSync(join(dir, "config.yaml"), "utf-8");
-    expect(content).toContain("team_name: my-team");
-    expect(content).toContain("agent_name: my-agent");
+    expect(content).toContain('team_name: "my-team"');
+    expect(content).toContain('agent_name: "my-agent"');
   });
 
   it("includes watch_interval when provided", () => {

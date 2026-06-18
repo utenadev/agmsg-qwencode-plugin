@@ -235,7 +235,7 @@ describe("agmsg_setup", () => {
     await client.close();
     // Verify config.yaml was written
     const cfgContent = readFileSync(join(storagePath, "config.yaml"), "utf-8");
-    expect(cfgContent).toContain("team_name: new-team");
-    expect(cfgContent).toContain("agent_name: new-agent");
+    expect(cfgContent).toContain('team_name: "new-team"');
+    expect(cfgContent).toContain('agent_name: "new-agent"');
   });
 });
