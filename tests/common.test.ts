@@ -100,13 +100,12 @@ describe("listMyUnread", () => {
     db.close();
   });
 
-  it("returns ALL-targeted messages", () => {
+  it("does not return ALL-targeted messages (broadcast not supported)", () => {
     const dbPath = freshDb();
     seed(dbPath, { team: "team", from_agent: "broadcaster", to_agent: "ALL", body: "Broadcast" });
     const db = openDb(dbPath);
     const msgs = listMyUnread(db, { dbPath, teamName: "team", agentName: "agent" });
-    expect(msgs.length).toBe(1);
-    expect(msgs[0].to_agent).toBe("ALL");
+    expect(msgs.length).toBe(0);
     db.close();
   });
 });
@@ -251,8 +250,11 @@ describe("ensureDb", () => {
     ensureDb(dbPath);
     const db = new Database(dbPath);
     const tables = db.query("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
+    const indexes = db.query("SELECT name FROM sqlite_master WHERE type='index'").all() as { name: string }[];
     db.close();
     expect(tables.some(t => t.name === "messages")).toBe(true);
+    expect(indexes.some(i => i.name === "idx_unread")).toBe(true);
+    expect(indexes.some(i => i.name === "idx_history")).toBe(true);
   });
 
   it("is idempotent — does not fail if called twice", () => {

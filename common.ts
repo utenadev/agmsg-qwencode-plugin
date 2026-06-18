@@ -35,7 +35,7 @@ export function listMyUnread(db: Database, cfg: PluginConfig): AgmsgMessage[] {
   return db.query(
     `SELECT id, team, from_agent, to_agent, body, created_at, read_at
      FROM messages
-     WHERE team = ? AND (to_agent = ? OR to_agent = 'ALL') AND read_at IS NULL
+     WHERE team = ? AND to_agent = ? AND read_at IS NULL
      ORDER BY created_at ASC`
   ).all(cfg.teamName, cfg.agentName) as AgmsgMessage[];
 }
@@ -45,7 +45,7 @@ export function consumeMyNextMessage(db: Database, cfg: PluginConfig): AgmsgMess
     `UPDATE messages SET read_at = datetime('now')
      WHERE id = (
        SELECT id FROM messages
-       WHERE team = ? AND (to_agent = ? OR to_agent = 'ALL') AND read_at IS NULL
+       WHERE team = ? AND to_agent = ? AND read_at IS NULL
        ORDER BY created_at ASC LIMIT 1
      )
      RETURNING id, team, from_agent, to_agent, body, created_at, read_at`
@@ -73,7 +73,7 @@ export function listMembers(db: Database, teamName: string): string[] {
   const rows = db.query(
     `SELECT DISTINCT from_agent AS agent FROM messages WHERE team = ?
      UNION
-     SELECT DISTINCT to_agent AS agent FROM messages WHERE team = ? AND to_agent != 'ALL'
+     SELECT DISTINCT to_agent AS agent FROM messages WHERE team = ?
      ORDER BY agent ASC`
   ).all(teamName, teamName) as { agent: string }[];
   return rows.map(r => r.agent);
@@ -82,7 +82,7 @@ export function listMembers(db: Database, teamName: string): string[] {
 export function countMyUnread(db: Database, cfg: PluginConfig): number {
   const row = db.query(
     `SELECT COUNT(*) as count FROM messages
-     WHERE team = ? AND (to_agent = ? OR to_agent = 'ALL') AND read_at IS NULL`
+     WHERE team = ? AND to_agent = ? AND read_at IS NULL`
   ).get(cfg.teamName, cfg.agentName) as { count: number };
   return row.count;
 }
@@ -193,6 +193,7 @@ export function ensureDb(dbPath: string): void {
       read_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_unread ON messages(team, to_agent, read_at) WHERE read_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_history ON messages(team, created_at DESC);
   `);
   db.close();
 }
