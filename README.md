@@ -12,17 +12,19 @@ agmsg-qwencode-plugin (MCP server)
     │
     ├─ agmsg_send      → sendMessage()
     ├─ agmsg_inbox     → listMyUnread()
-    ├─ agmsg_consume   → consumeMyNextMessage()
-    ├─ agmsg_count     → countMyUnread()
-    ├─ agmsg_teams     → listTeams()
-    ├─ agmsg_members   → listMembers()
-    └─ agmsg_setup     → setupWizard (check status or init config)
+    ├─ agmsg_consume      → consumeMyNextMessage()
+    ├─ agmsg_count        → countMyUnread()
+    ├─ agmsg_teams        → listTeams()
+    ├─ agmsg_members      → listMembers()
+    ├─ agmsg_setup        → setupWizard (check status or init config)
+    ├─ agmsg_check        → countMyUnread() + listMyUnread()
+    └─ agmsg_auto_consume → consumeMyNextMessage() + parseMessageType()
     │
     ▼
 SQLite (WAL mode)
 ```
 
-AI agents can only interact through the 7 MCP tools. The database is fully hidden.
+AI agents can only interact through the 9 MCP tools. The database is fully hidden.
 
 ## Installation
 

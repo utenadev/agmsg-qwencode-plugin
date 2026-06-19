@@ -90,6 +90,19 @@ export function countMyUnread(db: Database, cfg: PluginConfig): number {
 export const NOTIFICATION = (fromAgent: string, body: string): string =>
   `[agmsg] Message from "${fromAgent}":\n---\n${body}\n---\nReply using the send tool if appropriate.`;
 
+export interface MessageType {
+  is_question: boolean;
+  is_request: boolean;
+}
+
+export function parseMessageType(body: string): MessageType {
+  const b = body.trim();
+  return {
+    is_question: b.endsWith("?") || /(何|どう|教えて)/.test(b),
+    is_request: /(してほしい|お願い|依頼)/.test(b),
+  };
+}
+
 export const CONFIG_FILE = "config.yaml";
 
 export interface Settings {

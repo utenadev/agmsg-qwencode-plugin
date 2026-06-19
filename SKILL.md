@@ -27,19 +27,26 @@ List all agents in your current team.
 ### agmsg_setup
 Check configuration status or initialize a new configuration. Call without arguments to check status, or provide `team_name` + `agent_name` to set up.
 
+### agmsg_check
+Check for unread messages. Returns count + message list. **Use this at the start of each conversation** instead of calling `agmsg_count` + `agmsg_inbox` separately.
+
+### agmsg_auto_consume
+Consume the oldest unread message with automatic type classification. Returns the message + `type: question=true/false request=true/false` flags and a suggested `action:` line. Use this for auto-reply flows.
+
 ## Basic Usage
 
 **At the start of each conversation**, check for new messages:
 
-1. Call `agmsg_count` — if > 0, proceed
-2. Call `agmsg_consume` to read the oldest message
-3. If the message requires a reply, call `agmsg_send` to respond
+1. Call `agmsg_check` — if "No unread messages.", proceed with conversation
+2. If messages exist, call `agmsg_auto_consume` for each unread message
+3. Follow the `action:` line in the response:
+   - `action: reply with agmsg_send` → send a reply to the original sender
+   - `action: acknowledge and execute` → perform the requested task, confirm with `agmsg_send`
+   - `action: no reply needed` → informational, do nothing
 
 You can only send to agents on your team. You cannot specify `from_agent` or `team` — these are set by the plugin configuration.
 
 ## Autonomous Action Policy
-
-When you receive a message via `agmsg_consume`, follow this decision flow:
 
 ### 1. Acknowledge
 Always parse the sender and content. The message format is:
@@ -50,15 +57,18 @@ Always parse the sender and content. The message format is:
 <content>
 ---
 Reply using the send tool if appropriate.
+---
+type: question=true/false request=true/false
+action: <suggested action>
 ```
 
 ### 2. Decide
 
-| Pattern | Action |
+| `type` flags | Action |
 |---|---|
-| Question (ends with `?`, contains 何/どう/教えて/etc) | Reply with `agmsg_send` |
-| Request (contains してほしい/お願い/依頼/etc) | Acknowledge + execute if within your capability |
-| Notification (status update, build result, alert) | No reply needed unless action required |
+| `question=true` | Reply with `agmsg_send` |
+| `request=true` | Acknowledge + execute if within your capability |
+| both `false` | No reply needed unless action required |
 | Unknown / unclear | Reply asking for clarification |
 
 ### 3. Act

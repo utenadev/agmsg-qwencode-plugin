@@ -246,3 +246,91 @@ describe("agmsg_setup", () => {
     expect(cfgContent).toContain('agent_name: "new-agent"');
   });
 });
+
+describe("agmsg_check", () => {
+  it("returns empty when no unread messages", async () => {
+    const { storagePath } = createTestEnv();
+    const client = await createConnectedClient(storagePath, "test-team", "qwen");
+    const result = await client.callTool({ name: "agmsg_check", arguments: {} });
+    expect(result.content[0].text).toBe("No unread messages.");
+    await client.close();
+  });
+
+  it("returns count and messages when unread exists", async () => {
+    const { storagePath, dbPath } = createTestEnv();
+    seed(dbPath, { team: "test-team", from_agent: "alice", to_agent: "qwen", body: "Hello" });
+    const client = await createConnectedClient(storagePath, "test-team", "qwen");
+    const result = await client.callTool({ name: "agmsg_check", arguments: {} });
+    expect(result.content[0].text).toContain("1 unread message(s)");
+    expect(result.content[0].text).toContain("alice");
+    expect(result.content[0].text).toContain("Hello");
+    await client.close();
+  });
+
+  it("does not mark messages as read", async () => {
+    const { storagePath, dbPath } = createTestEnv();
+    seed(dbPath, { team: "test-team", from_agent: "alice", to_agent: "qwen", body: "Hello" });
+    const client = await createConnectedClient(storagePath, "test-team", "qwen");
+    await client.callTool({ name: "agmsg_check", arguments: {} });
+    await client.close();
+    const db = new Database(dbPath);
+    const row = db.query("SELECT read_at FROM messages WHERE id = 1").get() as any;
+    db.close();
+    expect(row.read_at).toBeNull();
+  });
+});
+
+describe("agmsg_auto_consume", () => {
+  it("returns empty when no unread messages", async () => {
+    const { storagePath } = createTestEnv();
+    const client = await createConnectedClient(storagePath, "test-team", "qwen");
+    const result = await client.callTool({ name: "agmsg_auto_consume", arguments: {} });
+    expect(result.content[0].text).toBe("No unread messages.");
+    await client.close();
+  });
+
+  it("classifies question and suggests reply action", async () => {
+    const { storagePath, dbPath } = createTestEnv();
+    seed(dbPath, { team: "test-team", from_agent: "alice", to_agent: "qwen", body: "What is the status?" });
+    const client = await createConnectedClient(storagePath, "test-team", "qwen");
+    const result = await client.callTool({ name: "agmsg_auto_consume", arguments: {} });
+    expect(result.content[0].text).toContain("question=true");
+    expect(result.content[0].text).toContain("request=false");
+    expect(result.content[0].text).toContain("action: reply with agmsg_send");
+    await client.close();
+  });
+
+  it("classifies request and suggests execute action", async () => {
+    const { storagePath, dbPath } = createTestEnv();
+    seed(dbPath, { team: "test-team", from_agent: "alice", to_agent: "qwen", body: "レビューしてほしい" });
+    const client = await createConnectedClient(storagePath, "test-team", "qwen");
+    const result = await client.callTool({ name: "agmsg_auto_consume", arguments: {} });
+    expect(result.content[0].text).toContain("question=false");
+    expect(result.content[0].text).toContain("request=true");
+    expect(result.content[0].text).toContain("action: acknowledge and execute");
+    await client.close();
+  });
+
+  it("classifies notification and suggests no reply", async () => {
+    const { storagePath, dbPath } = createTestEnv();
+    seed(dbPath, { team: "test-team", from_agent: "alice", to_agent: "qwen", body: "Build passed." });
+    const client = await createConnectedClient(storagePath, "test-team", "qwen");
+    const result = await client.callTool({ name: "agmsg_auto_consume", arguments: {} });
+    expect(result.content[0].text).toContain("question=false");
+    expect(result.content[0].text).toContain("request=false");
+    expect(result.content[0].text).toContain("action: no reply needed");
+    await client.close();
+  });
+
+  it("marks message as read", async () => {
+    const { storagePath, dbPath } = createTestEnv();
+    seed(dbPath, { team: "test-team", from_agent: "alice", to_agent: "qwen", body: "Hello?" });
+    const client = await createConnectedClient(storagePath, "test-team", "qwen");
+    await client.callTool({ name: "agmsg_auto_consume", arguments: {} });
+    await client.close();
+    const db = new Database(dbPath);
+    const row = db.query("SELECT read_at FROM messages WHERE id = 1").get() as any;
+    db.close();
+    expect(row.read_at).not.toBeNull();
+  });
+});

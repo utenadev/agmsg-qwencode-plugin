@@ -13,12 +13,13 @@ import {
   listMembers,
   countMyUnread,
   NOTIFICATION,
+  parseMessageType,
   resolveSettings,
   isConfigured,
   saveConfig,
   ensureDb,
 } from "./common.js";
-import type { PluginConfig } from "./common.js";
+import type { PluginConfig, MessageType } from "./common.js";
 
 const log = (...args: unknown[]) => console.error("[agmsg]", ...args);
 const logErr = (tag: string, err: unknown) => console.error(`[agmsg] ${tag} error:`, err);
@@ -156,6 +157,46 @@ export function createServer(storagePath?: string, teamName?: string, agentName?
     } catch (err) {
       logErr("setup", err);
       return { content: [{ type: "text" as const, text: "Error: failed to save configuration." }], isError: true };
+    }
+  });
+
+  server.registerTool("agmsg_check", {
+    description: "Check for unread messages. Returns count + messages. Use this at conversation start.",
+    inputSchema: z.object({}).shape,
+  }, async () => {
+    try {
+      const cfg = getCfg();
+      const n = countMyUnread(db, cfg);
+      if (n === 0) return { content: [{ type: "text" as const, text: "No unread messages." }] };
+      const msgs = listMyUnread(db, cfg);
+      log(`Check: ${n} unread`);
+      const lines = msgs.map(m => `[#${m.id}] ${m.created_at} from ${m.from_agent}: ${m.body}`);
+      return { content: [{ type: "text" as const, text: `${n} unread message(s):\n${lines.join("\n")}` }] };
+    } catch (err) {
+      logErr("check", err);
+      return { content: [{ type: "text" as const, text: "Error: failed to check messages." }], isError: true };
+    }
+  });
+
+  server.registerTool("agmsg_auto_consume", {
+    description: "Consume the oldest unread message with type classification. Returns message + flags for auto-reply.",
+    inputSchema: z.object({}).shape,
+  }, async () => {
+    try {
+      const msg = consumeMyNextMessage(db, getCfg());
+      if (!msg) return { content: [{ type: "text" as const, text: "No unread messages." }] };
+      const mt = parseMessageType(msg.body);
+      log(`Auto-consumed #${msg.id} from ${msg.from_agent} (q=${mt.is_question}, r=${mt.is_request})`);
+      const parts = [
+        NOTIFICATION(msg.from_agent, msg.body),
+        `---`,
+        `type: question=${mt.is_question} request=${mt.is_request}`,
+        mt.is_question ? "action: reply with agmsg_send" : mt.is_request ? "action: acknowledge and execute" : "action: no reply needed",
+      ];
+      return { content: [{ type: "text" as const, text: parts.join("\n") }] };
+    } catch (err) {
+      logErr("auto_consume", err);
+      return { content: [{ type: "text" as const, text: "Error: failed to auto-consume message." }], isError: true };
     }
   });
 

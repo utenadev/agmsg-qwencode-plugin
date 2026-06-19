@@ -12,17 +12,19 @@ agmsg-qwencode-plugin (MCP server)
     │
     ├─ agmsg_send      → sendMessage()
     ├─ agmsg_inbox     → listMyUnread()
-    ├─ agmsg_consume   → consumeMyNextMessage()
-    ├─ agmsg_count     → countMyUnread()
-    ├─ agmsg_teams     → listTeams()
-    ├─ agmsg_members   → listMembers()
-    └─ agmsg_setup     → setupWizard（設定確認 / 初期化）
+    ├─ agmsg_consume      → consumeMyNextMessage()
+    ├─ agmsg_count        → countMyUnread()
+    ├─ agmsg_teams        → listTeams()
+    ├─ agmsg_members      → listMembers()
+    ├─ agmsg_setup        → setupWizard（設定確認 / 初期化）
+    ├─ agmsg_check        → countMyUnread() + listMyUnread()
+    └─ agmsg_auto_consume → consumeMyNextMessage() + parseMessageType()
     │
     ▼
 SQLite (WAL mode)
 ```
 
-AI エージェントは7つの MCP ツール経由でのみ操作できます。データベースの直接アクセスはできません。
+AI エージェントは9つの MCP ツール経由でのみ操作できます。データベースの直接アクセスはできません。
 
 ## インストール
 
@@ -63,7 +65,7 @@ bun run monitor   # モニターループ（未読メッセージをポーリン
 
 ## テスト
 
-37 テスト（common.test.ts: 21 + server.test.ts: 16）:
+49 テスト（common.test.ts: 25 + server.test.ts: 24）:
 
 ```
 bun test

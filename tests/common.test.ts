@@ -58,6 +58,7 @@ import {
   isConfigured,
   saveConfig,
   ensureDb,
+  parseMessageType,
 } from "../common.ts";
 
 describe("openDb", () => {
@@ -274,5 +275,31 @@ describe("ensureDb", () => {
     const tables = db.query("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
     db.close();
     expect(tables.some(t => t.name === "messages")).toBe(true);
+  });
+});
+
+describe("parseMessageType", () => {
+  it("detects question with ?", () => {
+    const mt = parseMessageType("What is this?");
+    expect(mt.is_question).toBe(true);
+    expect(mt.is_request).toBe(false);
+  });
+
+  it("detects question with Japanese", () => {
+    const mt = parseMessageType("これは何ですか");
+    expect(mt.is_question).toBe(true);
+    expect(mt.is_request).toBe(false);
+  });
+
+  it("detects request", () => {
+    const mt = parseMessageType("レビューしてほしい");
+    expect(mt.is_question).toBe(false);
+    expect(mt.is_request).toBe(true);
+  });
+
+  it("returns false for both on plain notification", () => {
+    const mt = parseMessageType("Build passed.");
+    expect(mt.is_question).toBe(false);
+    expect(mt.is_request).toBe(false);
   });
 });
