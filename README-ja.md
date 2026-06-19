@@ -63,7 +63,7 @@ bun run monitor   # モニターループ（未読メッセージをポーリン
 
 ## テスト
 
-37 テスト（common.test.ts: 22 + server.test.ts: 15）:
+37 テスト（common.test.ts: 21 + server.test.ts: 16）:
 
 ```
 bun test

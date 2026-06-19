@@ -32,12 +32,19 @@ function freshDb(): string {
   return dbPath;
 }
 
-function seed(dbPath: string, row: { team: string; from_agent: string; to_agent: string; body?: string }) {
+function seed(dbPath: string, row: { team: string; from_agent: string; to_agent: string; body?: string; created_at?: string }) {
   const db = new Database(dbPath);
-  db.run(
-    "INSERT INTO messages (team, from_agent, to_agent, body) VALUES (?, ?, ?, ?)",
-    row.team, row.from_agent, row.to_agent, row.body ?? "hello"
-  );
+  if (row.created_at) {
+    db.run(
+      "INSERT INTO messages (team, from_agent, to_agent, body, created_at) VALUES (?, ?, ?, ?, ?)",
+      row.team, row.from_agent, row.to_agent, row.body ?? "hello", row.created_at
+    );
+  } else {
+    db.run(
+      "INSERT INTO messages (team, from_agent, to_agent, body) VALUES (?, ?, ?, ?)",
+      row.team, row.from_agent, row.to_agent, row.body ?? "hello"
+    );
+  }
   db.close();
 }
 
@@ -121,8 +128,8 @@ describe("consumeMyNextMessage", () => {
 
   it("atomically claims and returns the oldest unread message", () => {
     const dbPath = freshDb();
-    seed(dbPath, { team: "team", from_agent: "a1", to_agent: "agent", body: "First" });
-    seed(dbPath, { team: "team", from_agent: "a2", to_agent: "agent", body: "Second" });
+    seed(dbPath, { team: "team", from_agent: "a1", to_agent: "agent", body: "First", created_at: "2026-01-01T00:00:00Z" });
+    seed(dbPath, { team: "team", from_agent: "a2", to_agent: "agent", body: "Second", created_at: "2026-01-01T00:00:01Z" });
     const db = openDb(dbPath);
     const msg = consumeMyNextMessage(db, { dbPath, teamName: "team", agentName: "agent" });
     expect(msg).not.toBeNull();

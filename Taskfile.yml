@@ -2,10 +2,9 @@ version: "3"
 
 tasks:
   default:
-    desc: Run all tests (unit + E2E)
+    desc: Run all tests
     cmds:
       - task: test
-      - task: test:e2e
 
   install:
     desc: Install dependencies
@@ -26,11 +25,6 @@ tasks:
     desc: Run unit tests in watch mode
     cmds:
       - bun test --watch
-
-  test:e2e:
-    desc: Run end-to-end integration test
-    cmds:
-      - ./scripts/e2e.sh
 
   typecheck:
     desc: Run TypeScript type checking

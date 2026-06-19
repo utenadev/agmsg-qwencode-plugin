@@ -15,13 +15,14 @@ agmsg-qwencode-plugin (MCP server)
     ├─ agmsg_consume   → consumeMyNextMessage()
     ├─ agmsg_count     → countMyUnread()
     ├─ agmsg_teams     → listTeams()
-    └─ agmsg_members   → listMembers()
+    ├─ agmsg_members   → listMembers()
+    └─ agmsg_setup     → setupWizard (check status or init config)
     │
     ▼
 SQLite (WAL mode)
 ```
 
-AI agents can only interact through the 6 MCP tools. The database is fully hidden.
+AI agents can only interact through the 7 MCP tools. The database is fully hidden.
 
 ## Installation
 
@@ -57,6 +58,7 @@ bun install
 bun test          # run all tests
 bun run typecheck # type check
 bun run build     # compile to dist/
+bun run monitor   # monitor loop (poll for unread messages)
 ```
 
 ## License

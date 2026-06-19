@@ -59,7 +59,6 @@ Reply using the send tool if appropriate.
 | Question (ends with `?`, contains 何/どう/教えて/etc) | Reply with `agmsg_send` |
 | Request (contains してほしい/お願い/依頼/etc) | Acknowledge + execute if within your capability |
 | Notification (status update, build result, alert) | No reply needed unless action required |
-| Broadcast (`from_agent` sent to `ALL`) | Process if relevant to your role; reply only if you can add value |
 | Unknown / unclear | Reply asking for clarification |
 
 ### 3. Act
