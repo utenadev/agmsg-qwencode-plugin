@@ -95,8 +95,34 @@ The plugin includes a `monitor` command for background message polling:
 bun run monitor
 ```
 
-This runs a persistent loop that checks for new messages at the configured interval (default: 10s). When messages arrive, they are printed to stdout in notification format. A `.pending` signal file is written to the storage directory for external hook integration.
+This runs a persistent loop that checks for new messages at the configured interval (default: 10s). A `.pending` signal file is written to the storage directory for external hook integration.
 
-Configure the interval via:
-- `watch_interval` in `config.yaml`
-- `AGMSG_WATCH_INTERVAL` environment variable (milliseconds)
+### Normal Mode (default)
+
+When messages arrive, they are printed to stdout in notification format (consume is NOT called — messages stay unread).
+
+### Auto-Reply Mode
+
+Enable `autoReply` to have the monitor consume and classify each message automatically:
+
+```yaml
+# config.yaml
+auto_reply: true
+```
+
+Or via environment variable: `AGMSG_AUTO_REPLY=true`
+
+In auto-reply mode, each message is consumed (marked as read), classified by type, and printed with an `action:` hint:
+- `action: reply with agmsg_send` — message is a question
+- `action: acknowledge and execute` — message is a request
+- `action: no reply needed` — informational notice
+
+Consumed messages are NOT re-printed on subsequent loops.
+
+### Configuration
+
+- `watch_interval` in `config.yaml` (milliseconds)
+- `AGMSG_WATCH_INTERVAL` env var (milliseconds)
+
+- `auto_reply` in `config.yaml` (true/false)
+- `AGMSG_AUTO_REPLY` env var (true/false)

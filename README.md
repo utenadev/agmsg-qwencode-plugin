@@ -52,6 +52,7 @@ Environment variables (override config file):
 - `AGMSG_TEAM` — team name
 - `AGMSG_AGENT` — agent name
 - `AGMSG_WATCH_INTERVAL` — poll interval in ms
+- `AGMSG_AUTO_REPLY` — enable auto-reply mode in monitor (true/false)
 
 ## Development
 
@@ -62,6 +63,16 @@ bun run typecheck # type check
 bun run build     # compile to dist/
 bun run monitor   # monitor loop (poll for unread messages)
 ```
+
+## Test Count
+
+55 tests (common.test.ts: 33 + server.test.ts: 22):
+
+```
+bun test
+```
+
+Tests cover both MCP server testing via InMemoryTransport and SQLite unit tests.
 
 ## License
 

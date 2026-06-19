@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { tmpdir } from "os";
 import { join } from "path";
-import { mkdtempSync, rmSync, readFileSync } from "fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "fs";
 
 const tmpDirs = new Set<string>();
 afterEach(() => {
@@ -59,6 +59,8 @@ import {
   saveConfig,
   ensureDb,
   parseMessageType,
+  resolveSettings,
+  loadSettings,
 } from "../common.ts";
 
 describe("openDb", () => {
@@ -301,5 +303,62 @@ describe("parseMessageType", () => {
     const mt = parseMessageType("Build passed.");
     expect(mt.is_question).toBe(false);
     expect(mt.is_request).toBe(false);
+  });
+});
+
+describe("loadSettings", () => {
+  it("returns empty object when no config.yaml exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    const s = loadSettings(dir);
+    expect(s).toEqual({});
+  });
+
+  it("parses auto_reply from config.yaml", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    writeFileSync(join(dir, "config.yaml"), "team_name: t\nagent_name: a\nauto_reply: true\n");
+    const s = loadSettings(dir);
+    expect(s.autoReply).toBe(true);
+  });
+
+  it("parses auto_reply false from config.yaml", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    writeFileSync(join(dir, "config.yaml"), "auto_reply: false\n");
+    const s = loadSettings(dir);
+    expect(s.autoReply).toBe(false);
+  });
+});
+
+describe("resolveSettings", () => {
+  it("defaults autoReply to false", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    const s = resolveSettings(dir);
+    expect(s.autoReply).toBe(false);
+  });
+
+  it("reads autoReply from config file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    writeFileSync(join(dir, "config.yaml"), "auto_reply: true\n");
+    const s = resolveSettings(dir);
+    expect(s.autoReply).toBe(true);
+  });
+
+  it("env AGMSG_AUTO_REPLY overrides config file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agmsg-cfg-test-"));
+    tmpDirs.add(dir);
+    writeFileSync(join(dir, "config.yaml"), "auto_reply: false\n");
+    const orig = process.env.AGMSG_AUTO_REPLY;
+    process.env.AGMSG_AUTO_REPLY = "true";
+    try {
+      const s = resolveSettings(dir);
+      expect(s.autoReply).toBe(true);
+    } finally {
+      if (orig === undefined) delete process.env.AGMSG_AUTO_REPLY;
+      else process.env.AGMSG_AUTO_REPLY = orig;
+    }
   });
 });

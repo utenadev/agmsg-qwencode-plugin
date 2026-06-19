@@ -52,6 +52,7 @@ watch_interval: 10000
 - `AGMSG_TEAM` — チーム名
 - `AGMSG_AGENT` — エージェント名
 - `AGMSG_WATCH_INTERVAL` — ポーリング間隔（ミリ秒）
+- `AGMSG_AUTO_REPLY` — モニターの自動返信モードを有効化（true/false）
 
 ## 開発
 
@@ -65,7 +66,7 @@ bun run monitor   # モニターループ（未読メッセージをポーリン
 
 ## テスト
 
-49 テスト（common.test.ts: 25 + server.test.ts: 24）:
+55 テスト（common.test.ts: 33 + server.test.ts: 22）:
 
 ```
 bun test

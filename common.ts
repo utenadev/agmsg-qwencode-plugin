@@ -109,17 +109,21 @@ export interface Settings {
   teamName: string;
   agentName: string;
   watchInterval: number;
+  autoReply: boolean;
 }
 
 const DEFAULTS: Settings = {
   teamName: "default_team",
   agentName: "qwen",
   watchInterval: 10_000,
+  autoReply: false,
 };
 
-function parseYamlValue(raw: string): string | number {
+function parseYamlValue(raw: string): string | number | boolean {
   const trimmed = raw.trim();
   if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
   return trimmed.replace(/^["']|["']$/g, "");
 }
 
@@ -138,11 +142,12 @@ function loadYaml(text: string): Partial<Settings> {
     team_name: "teamName",
     agent_name: "agentName",
     watch_interval: "watchInterval",
+    auto_reply: "autoReply",
   };
   const result: Partial<Settings> = {};
   for (const [yamlKey, prop] of Object.entries(keyMap)) {
     if (out[yamlKey] !== undefined) {
-      (result[prop] as string | number) = out[yamlKey]!;
+      (result[prop] as string | number | boolean) = out[yamlKey]!;
     }
   }
   return result;
@@ -164,12 +169,14 @@ export function loadSettings(storagePath: string): Partial<Settings> {
 
 export function resolveSettings(storagePath: string): Settings {
   const fileSettings = loadSettings(storagePath);
+  const envAutoReply = process.env.AGMSG_AUTO_REPLY;
   return {
     teamName: process.env.AGMSG_TEAM ?? fileSettings.teamName ?? DEFAULTS.teamName,
     agentName: process.env.AGMSG_AGENT ?? fileSettings.agentName ?? DEFAULTS.agentName,
     watchInterval: parseInt(
       process.env.AGMSG_WATCH_INTERVAL ?? String(fileSettings.watchInterval ?? DEFAULTS.watchInterval), 10
     ),
+    autoReply: envAutoReply === "true" || (fileSettings.autoReply ?? DEFAULTS.autoReply),
   };
 }
 

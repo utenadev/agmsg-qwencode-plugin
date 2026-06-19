@@ -218,8 +218,9 @@ async function monitor(): Promise<void> {
   const dbPath = path.join(sp, "db", "messages.db");
   const cfg: PluginConfig = { dbPath, teamName: settings.teamName, agentName: settings.agentName };
   const interval = settings.watchInterval;
+  const autoReply = settings.autoReply;
 
-  log(`monitor start (team=${cfg.teamName} agent=${cfg.agentName} interval=${interval}ms)`);
+  log(`monitor start (team=${cfg.teamName} agent=${cfg.agentName} interval=${interval}ms autoReply=${autoReply})`);
 
   ensureDb(dbPath);
 
@@ -236,9 +237,29 @@ async function monitor(): Promise<void> {
       if (n > 0 && !pending) {
         pending = true;
         try { Bun.write(signalPath, String(n)); } catch { /* ignore */ }
-        const msgs = listMyUnread(db, cfg);
-        for (const msg of msgs) {
-          console.log(NOTIFICATION(msg.from_agent, msg.body));
+        if (autoReply) {
+          // C5: consume + classify each message, print action hint
+          for (let i = 0; i < n; i++) {
+            const msg = consumeMyNextMessage(db, cfg);
+            if (!msg) break;
+            const mt = parseMessageType(msg.body);
+            const action = mt.is_question ? "reply with agmsg_send"
+              : mt.is_request ? "acknowledge and execute"
+              : "no reply needed";
+            const parts = [
+              NOTIFICATION(msg.from_agent, msg.body),
+              `---`,
+              `type: question=${mt.is_question} request=${mt.is_request}`,
+              `action: ${action}`,
+            ];
+            console.log(parts.join("\n"));
+            log(`Auto-consumed #${msg.id} (q=${mt.is_question}, r=${mt.is_request})`);
+          }
+        } else {
+          const msgs = listMyUnread(db, cfg);
+          for (const msg of msgs) {
+            console.log(NOTIFICATION(msg.from_agent, msg.body));
+          }
         }
         log(`Notify: ${n} unread`);
       } else if (n === 0 && pending) {
